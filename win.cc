@@ -215,7 +215,7 @@ void Win::show_hide_icon() {
 	if (show) {
 		if (icon)
 			return;
-		icon = Gtk::StatusIcon::create("");
+		icon = Gtk::StatusIcon::create("easystroke.svg/");
 		icon->signal_size_changed().connect(sigc::mem_fun(*this, &Win::on_icon_size_changed));
 		icon->signal_activate().connect(sigc::mem_fun(*this, &Win::show_hide));
 		icon->signal_popup_menu().connect(sigc::mem_fun(*this, &Win::show_popup));
@@ -256,6 +256,10 @@ void Win::show() {
 	win->show();
 }
 
+void Win::maximize() {
+	win->maximize();
+}
+
 void Win::hide() {
 	win->hide();
 }
@@ -275,7 +279,7 @@ void Win::timeout() {
 }
 
 void Win::set_icon(RStroke stroke, bool invert) {
-	if (!icon)
+	if (!icon || icon->get_size() <= 0)
 		return;
 	icon->set(stroke->draw(icon->get_size(), 2.0, invert));
 	set_timeout(10000);

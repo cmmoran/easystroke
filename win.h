@@ -39,6 +39,7 @@ public:
 	boost::shared_ptr<Prefs> prefs_tab;
 	boost::shared_ptr<Stats> stats;
 	void show();
+    void maximize();
 	void hide();
 	void show_hide();
 	void set_icon(RStroke stroke, bool invert);
