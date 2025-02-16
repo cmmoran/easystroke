@@ -546,6 +546,8 @@ public:
 	virtual Grabber::State grab_mode() { return parent->grab_mode(); }
 };
 
+/* static inline float abs(float x) { return x > 0 ? x : -x; } */
+
 class AbstractScrollHandler : public Handler {
 	bool have_x, have_y;
 	float last_x, last_y;
@@ -980,12 +982,12 @@ protected:
 		RStroke s = finish(0);
 
         if (experimental) //button 1 should be treated as trigger 0, other trigger buttons copied from the event button b itself
-            if (b>100) 
+            if (b>100)
             {
                 b=b-100;
-                s->trigger = prefs.button.ref().button-1; 
+                s->trigger = prefs.button.ref().button-1;
             }
-        
+
 		if (prefs.move_back.get())
 			XTestFakeMotionEvent(dpy, DefaultScreen(dpy), orig->x, orig->y, 0);
 		else
