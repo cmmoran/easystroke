@@ -21,7 +21,6 @@
 #include <boost/serialization/access.hpp>
 #include <boost/serialization/version.hpp>
 #include <boost/serialization/split_member.hpp>
-#include <iostream>
 
 #include "gesture.h"
 #include "prefdb.h"
@@ -156,7 +155,7 @@ public:
 	static unsigned int get_button(RAction act) {
 		if (!act)
 			return 0;
-		Button *b = dynamic_cast<Button *>(act.get());
+		const auto *b = dynamic_cast<Button *>(act.get());
 		if (!b)
 			return 0;
 		return b->get_button_info().button;
@@ -165,18 +164,18 @@ public:
 	virtual const Glib::ustring get_label() const;
 	virtual void run();
 };
-#define IF_BUTTON(act, b) if (unsigned int b = Button::get_button(act))
+#define IF_BUTTON(act, b) if (const unsigned int b = Button::get_button(act))
 
 class Misc : public Action {
 	friend class boost::serialization::access;
 public:
-	enum Type { NONE, UNMINIMIZE, SHOWHIDE, DISABLE };
+	enum Type { NONE, MAXIMIZE, UNMINIMIZE, SHOWHIDE, DISABLE };
 	Type type;
 private:
 	template<class Archive> void serialize(Archive & ar, const unsigned int version);
 	Misc(Type t) : type(t) {}
 public:
-	static const char *types[5];
+	static const char *types[6];
 	Misc() {}
 	virtual const Glib::ustring get_label() const;
 	static RMisc create(Type t) { return RMisc(new Misc(t)); }
@@ -239,22 +238,25 @@ class ActionListDiff {
 
 	void update_order() {
 		int j = 0;
-		for (std::list<Unique *>::iterator i = order.begin(); i != order.end(); i++, j++) {
+		for (auto i = order.begin(); i != order.end(); ++i, j++) {
 			(*i)->level = level;
 			(*i)->i = j;
 		}
 	}
 
 	void fix_tree(bool rebuild_order) {
-		if (rebuild_order)
-			for (std::map<Unique *, StrokeInfo>::iterator i = added.begin(); i != added.end(); i++)
-				if (!(parent && parent->contains(i->first)))
-					order.push_back(i->first);
+		if (rebuild_order) {
+			for (auto & i : added) {
+				if (!(parent && parent->contains(i.first))) {
+					order.push_back(i.first);
+				}
+			}
+		}
 		update_order();
-		for (std::list<ActionListDiff>::iterator i = children.begin(); i != children.end(); i++) {
-			i->parent = this;
-			i->level = level + 1;
-			i->fix_tree(rebuild_order);
+		for (auto & i : children) {
+			i.parent = this;
+			i.level = level + 1;
+			i.fix_tree(rebuild_order);
 		}
 	}
 public:
@@ -262,7 +264,7 @@ public:
 	bool app;
 	std::string name;
 
-	ActionListDiff() : parent(0), level(0), app(false) {}
+	ActionListDiff() : parent(nullptr), level(0), app(false) {}
 
 	typedef std::list<ActionListDiff>::iterator iterator;
 	iterator begin() { return children.begin(); }
@@ -272,23 +274,25 @@ public:
 	int order_size() const { return order.size(); }
 	int size_rec() const {
 		int size = added.size();
-		for (std::list<ActionListDiff>::const_iterator i = children.begin(); i != children.end(); i++)
-			size += i->size_rec();
+		for (const auto & i : children) {
+			size += i.size_rec();
+		}
 		return size;
 	}
 	bool resettable(Unique *id) const {
 		return parent && (added.count(id) || deleted.count(id)) && parent->contains(id);
 	}
 
-	Unique *add(StrokeInfo &si, Unique *before = 0) {
-		Unique *id = new Unique;
+	Unique *add(StrokeInfo &si, Unique *before = nullptr) {
+		auto id = new Unique;
 		added.insert(std::pair<Unique *, StrokeInfo>(id, si));
 		id->level = level;
 		id->i = order.size();
-		if (before)
+		if (before) {
 			order.insert(std::find(order.begin(), order.end(), before), id);
-		else
+		} else {
 			order.push_back(id);
+		}
 		update_order();
 		return id;
 	}
@@ -303,15 +307,17 @@ public:
 		return parent && parent->contains(id);
 	}
 	bool remove(Unique *id) {
-		bool really = !(parent && parent->contains(id));
+		const bool really = !(parent && parent->contains(id));
 		if (really) {
 			added.erase(id);
 			order.remove(id);
 			update_order();
-		} else
+		} else {
 			deleted.insert(id);
-		for (std::list<ActionListDiff>::iterator i = children.begin(); i != children.end(); i++)
-			i->remove(id);
+		}
+		for (auto & i : children) {
+			i.remove(id);
+		}
 		return really;
 	}
 	void reset(Unique *id) {
@@ -321,13 +327,15 @@ public:
 		deleted.erase(id);
 	}
 	void add_apps(std::map<std::string, ActionListDiff *> &apps) {
-		if (app)
+		if (app) {
 			apps[name] = this;
-		for (std::list<ActionListDiff>::iterator i = children.begin(); i != children.end(); i++)
-			i->add_apps(apps);
+		}
+		for (auto & i : children) {
+			i.add_apps(apps);
+		}
 	}
 	ActionListDiff *add_child(std::string name, bool app) {
-		children.push_back(ActionListDiff());
+		children.emplace_back();
 		ActionListDiff *child = &(children.back());
 		child->name = name;
 		child->app = app;
@@ -338,7 +346,7 @@ public:
 	bool remove() {
 		if (!parent)
 			return false;
-		for (std::list<ActionListDiff>::iterator i = parent->children.begin(); i != parent->children.end(); i++) {
+		for (auto i = parent->children.begin(); i != parent->children.end(); ++i) {
 			if (&*i == this) {
 				parent->children.erase(i);
 				return true;
@@ -383,8 +391,8 @@ BOOST_CLASS_VERSION(ActionListDiff, 1)
 class ActionDB {
 	friend class boost::serialization::access;
 	friend class ActionDBWatcher;
-	template<class Archive> void load(Archive & ar, const unsigned int version);
-	template<class Archive> void save(Archive & ar, const unsigned int version) const;
+	template<class Archive> void load(Archive & ar, unsigned int version);
+	template<class Archive> void save(Archive & ar, unsigned int version) const;
 	BOOST_SERIALIZATION_SPLIT_MEMBER()
 
 public:
@@ -398,8 +406,8 @@ public:
 
 	ActionListDiff *get_root() { return &root; }
 
-	const ActionListDiff *get_action_list(std::string wm_class) const {
-		std::map<std::string, ActionListDiff *>::const_iterator i = apps.find(wm_class);
+	const ActionListDiff *get_action_list(const std::string &wm_class) const {
+		const auto i = apps.find(wm_class);
 		return i == apps.end() ? &root : i->second;
 	}
 	ActionDB();

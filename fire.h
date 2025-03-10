@@ -27,7 +27,7 @@ class Fire : public Trace, public Timeout {
 	float leftover;
 
 	virtual void draw(Point p, Point q);
-	void add_point(float, float);
+	void add_point(float, float) const;
 	virtual void start_() { if (remove_timeout()) timeout(); leftover = 0; }
 	virtual void end_() { set_timeout(250); }
 	virtual void timeout();

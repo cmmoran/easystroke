@@ -47,10 +47,13 @@ void Popup::invalidate(int x1, int y1, int x2, int y2) {
 
 Composite::Composite() {
 #define N 128
-	int w = gdk_screen_width();
-	int h = gdk_screen_height();
-	num_x = (gdk_screen_width()  - 1)/N + 1;
-	num_y = (gdk_screen_height() - 1)/N + 1;
+	GdkRectangle fullworkarea{};
+	get_full_workarea(&fullworkarea);
+
+	const int w = fullworkarea.width;
+	const int h = fullworkarea.height;
+	num_x = (w - 1)/N + 1;
+	num_y = (h - 1)/N + 1;
 	pieces = new Popup**[num_x];
 	for (int i = 0; i < num_x; i++) {
 		pieces[i] = new Popup*[num_y];
@@ -61,15 +64,15 @@ Composite::Composite() {
 }
 
 void Composite::draw(Point p, Point q) {
-	if (!points.size()) {
+	if (points.empty()) {
 		points.push_back(p);
 	}
 	points.push_back(q);
-	int x1 = (int)(p.x < q.x ? p.x : q.x);
-	int x2 = (int)(p.x < q.x ? q.x : p.x);
-	int y1 = (int)(p.y < q.y ? p.y : q.y);
-	int y2 = (int)(p.y < q.y ? q.y : p.y);
-	int bw = (int)(width/2.0) + 2;
+	int x1 = static_cast<int>(p.x < q.x ? p.x : q.x);
+	int x2 = static_cast<int>(p.x < q.x ? q.x : p.x);
+	int y1 = static_cast<int>(p.y < q.y ? p.y : q.y);
+	int y2 = static_cast<int>(p.y < q.y ? q.y : p.y);
+	int bw = static_cast<int>(width/2.0) + 2;
 	x1 -= bw; y1 -= bw;
 	x2 += bw; y2 += bw;
 	if (x1 < 0)
@@ -82,7 +85,7 @@ void Composite::draw(Point p, Point q) {
 }
 
 void Composite::start_() {
-	RGBA rgba = prefs.color.get();
+	const RGBA rgba = prefs.color.get();
 	red = rgba.color.get_red_p();
 	green = rgba.color.get_green_p();
 	blue = rgba.color.get_blue_p();
@@ -91,11 +94,11 @@ void Composite::start_() {
 }
 
 void Popup::draw_line(Cairo::RefPtr<Cairo::Context> ctx) {
-	if (!points.size())
+	if (points.empty())
 		return;
-	std::list<Trace::Point>::iterator i = points.begin();
+	auto i = points.begin();
 	ctx->move_to (i->x, i->y);
-	for (; i != points.end(); i++)
+	for (; i != points.end(); ++i)
 		ctx->line_to (i->x, i->y);
 	ctx->set_source_rgba((red+0.5)/2.0, (green+0.5)/2.0, (blue+0.5)/2.0, alpha/2.0);
 	ctx->set_line_width(width+1.0);

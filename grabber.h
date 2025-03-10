@@ -66,13 +66,13 @@ public:
 		double scale_x, scale_y;
 		int num_buttons;
 		int master;
-		XiDevice(Grabber *, XIDeviceInfo *);
+		explicit XiDevice(XIDeviceInfo *);
 		void grab_device(GrabState grab);
 		void grab_button(ButtonInfo &bi, bool grab);
 	};
 
 	typedef std::map<XID, boost::shared_ptr<XiDevice> > DeviceMap;
-	int opcode, event, error;
+	int opcode{}, event{}, error{};
 	XiDevice *get_xi_dev(int id);
 private:
 	bool init_xi();
@@ -94,8 +94,6 @@ private:
 	void update_excluded();
 
 	void grab(State s) { current = s; set(); }
-	void suspend() { suspended++; set(); }
-	void resume() { if (suspended) suspended--; set(); }
 	void update();
 public:
 	Grabber();
@@ -113,8 +111,10 @@ public:
 	bool is_instant(guint b);
 	bool is_click_hold(guint b);
 	bool hierarchy_changed(XIHierarchyEvent *);
+	void suspend() { suspended++; set(); }
+	void resume() { if (suspended) suspended--; set(); }
 
-	int get_default_button() { return grabbed_button.button; }
+	int get_default_button() const { return grabbed_button.button; }
 	guint get_default_mods(guint button);
 
 	void unminimize();

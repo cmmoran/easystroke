@@ -80,8 +80,7 @@ public:
 	Handler *top() {
 		if (child)
 			return child->top();
-		else
-			return this;
+		return this;
 	}
 
 	virtual void motion(RTriple e) {}

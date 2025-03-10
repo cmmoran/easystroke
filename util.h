@@ -32,7 +32,7 @@ public:
 	bool remove_timeout() {
 		if (c) {
 			c->disconnect();
-			c = 0;
+			c = nullptr;
 			return true;
 		}
 		return false;

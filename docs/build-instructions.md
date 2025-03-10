@@ -1,4 +1,6 @@
-Easystroke is written in C++ and uses gtkmm for its GUI, but it also depends on the availability of several X11 extensions (Xtst, Xrandr and Xinput) and on the boost::serialization library. Installation of the libraries is distribution-specific. Please feel free to add instructions for your distro of choice.
+# Introduction
+
+  Easystroke is written in C++ and uses gtkmm for its GUI, but it also depends on the availability of several X11 extensions (Xtst, Xrandr and Xinput) and on the boost::serialization library. Installation of the libraries is distribution-specific. Please feel free to add instructions for your distro of choice.
 
 # Debian/Ubuntu
 	

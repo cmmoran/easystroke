@@ -16,9 +16,11 @@
 #ifndef __MAIN_H__
 #define __MAIN_H__
 
+#include <gdk/gdk.h>
 #include <string>
 #include <X11/X.h>
 
+void get_full_workarea(GdkRectangle *full_area);
 bool is_file(std::string filename);
 bool is_dir(std::string dirname);
 void quit();
@@ -33,6 +35,7 @@ extern "C" {
 struct _XDisplay;
 typedef struct _XDisplay Display;
 }
+void maximize_window(Display *display, Window win);
 
 extern Display *dpy;
 extern Window ROOT;

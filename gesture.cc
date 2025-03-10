@@ -22,7 +22,7 @@
 
 BOOST_CLASS_EXPORT(Stroke)
 
-void update_triple(RTriple e, float x, float y, Time t) {
+void update_triple(const RTriple& e, float x, float y, Time t) {
 	e->x = x;
 	e->y = y;
 	e->t = t;
@@ -34,17 +34,17 @@ RTriple create_triple(float x, float y, Time t) {
 	return e;
 }
 
-Stroke::Stroke(PreStroke &ps, int trigger_, int button_, unsigned int modifiers_, bool timeout_) : trigger(trigger_), button(button_), modifiers(modifiers_), timeout(timeout_) {
+Stroke::Stroke(const PreStroke &ps, const int trigger_, const int button_, unsigned int modifiers_, bool timeout_, bool isRockerLeft_, bool isRockerRight_) : trigger(trigger_), button(button_), modifiers(modifiers_), timeout(timeout_), isRockerLeft(isRockerLeft_), isRockerRight(isRockerRight_) {
 	if (ps.valid()) {
-		stroke_t *s = stroke_alloc(ps.size());
-		for (std::vector<RTriple>::iterator i = ps.begin(); i != ps.end(); ++i)
-			stroke_add_point(s, (*i)->x, (*i)->y);
+		stroke_t *s = stroke_alloc(static_cast<int>(ps.size()));
+		for (const auto & p : ps)
+			stroke_add_point(s, p->x, p->y);
 		stroke_finish(s);
 		stroke.reset(s, &stroke_free);
 	}
 }
 
-int Stroke::compare(RStroke a, RStroke b, double &score) {
+int Stroke::compare(const RStroke& a, const RStroke &b, double &score) {
 	score = 0.0;
 	if (!a || !b)
 		return -1;
@@ -69,8 +69,7 @@ int Stroke::compare(RStroke a, RStroke b, double &score) {
 	score = MAX(1.0 - 2.5*cost, 0.0);
 	if (a->timeout)
 		return score > 0.85;
-	else
-		return score > 0.7;
+	return score > 0.7;
 }
 
 Glib::RefPtr<Gdk::Pixbuf> Stroke::draw(int size, double width, bool inv) const {
@@ -97,11 +96,11 @@ Glib::RefPtr<Gdk::Pixbuf> Stroke::drawEmpty(int size) {
 
 RStroke Stroke::trefoil() {
 	PreStroke s;
-	const int n = 40;
+	constexpr int n = 40;
 	for (int i = 0; i<=n; i++) {
-		double phi = M_PI*(-4.0*i/n)-2.7;
-		double r = exp(1.0 + sin(6.0*M_PI*i/n)) + 2.0;
-		s.add(create_triple(r*cos(phi), r*sin(phi), i));
+		const double phi = M_PI*(-4.0*i/n)-2.7;
+		const double r = exp(1.0 + sin(6.0*M_PI*i/n)) + 2.0;
+		s.add(create_triple(static_cast<float>(r*cos(phi)), static_cast<float>(r*sin(phi)), i));
 	}
-	return Stroke::create(s, 0, 0, AnyModifier, false);
+	return create(s, 0, 0, AnyModifier, false, false, false);
 }

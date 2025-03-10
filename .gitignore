@@ -1,14 +1,22 @@
-*.o
-*.Po
-easystroke
-easystroke.1
-gui.c
-desktop.c
-*.swp
-debug.mk
-po/??
-po/??_??
-po/POTFILES.in
-po/*.pot
-easystroke.desktop
-.clang_complete
+*
+
+# But not these files...
+!/.gitignore
+
+!*.cc
+!*.h
+!*.vala
+!changelog
+!easystroke.svg
+!easystroke.appdata.xml
+!easystroke.desktop.in
+!gui.glade
+!README.md
+!LICENSE
+!Makefile
+
+!po/*.po
+!docs/*.md
+
+# ...even if they are in subdirectories
+!*/

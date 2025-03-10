@@ -39,7 +39,7 @@ public:
 	void start(Point p);
 	void end();
 	virtual void timeout() {}
-	virtual ~Trace() {}
+	virtual ~Trace() = default;
 };
 
 class Trivial : public Trace {

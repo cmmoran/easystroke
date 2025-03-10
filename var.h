@@ -24,7 +24,7 @@
 class Base {
 public:
 	virtual void notify() = 0;
-	virtual ~Base() {}
+	virtual ~Base() = default;
 };
 
 class Notifier : public Base {
@@ -39,8 +39,9 @@ class Atomic {
 public:
 	void defer(Base *out) { update_queue.insert(out); }
 	~Atomic() {
-		for (std::set<Base *>::iterator i = update_queue.begin(); i != update_queue.end(); i++)
-			(*i)->notify();
+		for (const auto i : update_queue) {
+			i->notify();
+		}
 	}
 };
 
@@ -48,19 +49,19 @@ template <class T> class Out {
 	std::set<Base *> out;
 protected:
 	void update() {
-		for (std::set<Base *>::iterator i = out.begin(); i != out.end(); i++)
-			(*i)->notify();
+		for (const auto i : out)
+			i->notify();
 	}
 public:
 	void connect(Base *s) { out.insert(s); }
 	virtual T get() const = 0;
-	virtual ~Out() {}
+	virtual ~Out() = default;
 };
 
 template <class T> class In {
 public:
-	virtual void set(const T x) = 0;
-	virtual ~In() {}
+	virtual void set(T x) = 0;
+	virtual ~In() = default;
 };
 
 template <class T> class IO : public In<T>, public Out<T> {};
@@ -68,7 +69,7 @@ template <class T> class IO : public In<T>, public Out<T> {};
 template <class T> class Source : public IO<T>, private Base {
 	T x;
 public:
-	Source() {}
+	Source() = default;
 	Source(T x_) : x(x_) {}
 	virtual void set(const T x_) {
 		x = x_;

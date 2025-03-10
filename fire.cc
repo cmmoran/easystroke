@@ -15,12 +15,12 @@
  */
 #include "fire.h"
 #include <X11/Xlib.h>
-#include <math.h>
-#include <stdio.h>
+#include <cmath>
+#include <cstdio>
 
 Fire::Fire() {
-	const char *ofc = "org.freedesktop.compiz";
-	GError *error = 0;
+	const auto ofc = "org.freedesktop.compiz";
+	GError *error = nullptr;
 	bus = dbus_g_bus_get(DBUS_BUS_SESSION, &error);
 	if (!bus) {
 		g_error_free(error);
@@ -35,7 +35,7 @@ Fire::Fire() {
 	clear_proxy = dbus_g_proxy_new_for_name(bus, ofc, clear, ofc);
 }
 
-void Fire::add_point(float x, float y) {
+void Fire::add_point(float x, float y) const {
 	dbus_g_proxy_call_no_reply(point_proxy, "activate",
 			G_TYPE_STRING, "root", G_TYPE_INT,    gint(ROOT),
 			G_TYPE_STRING, "x",   G_TYPE_DOUBLE, gdouble(x),
@@ -44,7 +44,7 @@ void Fire::add_point(float x, float y) {
 }
 
 void Fire::draw(Point p, Point q) {
-	float dist = hypot(p.x-q.x, p.y-q.y);
+	const float dist = std::hypot(p.x-q.x, p.y-q.y);
 	leftover -= dist;
 	while (leftover < 0.01) {
 		add_point(q.x + (q.x-p.x)*leftover/dist, q.y + (q.y-p.y)*leftover/dist);
@@ -53,6 +53,6 @@ void Fire::draw(Point p, Point q) {
 }
 void Fire::timeout() {
 	dbus_g_proxy_call_no_reply(clear_proxy, "activate",
-			G_TYPE_STRING, "root", G_TYPE_INT,    gint(ROOT),
+			G_TYPE_STRING, "root", G_TYPE_INT,    static_cast<gint>(ROOT),
 			G_TYPE_INVALID);
 }

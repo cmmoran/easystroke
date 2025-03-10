@@ -15,11 +15,11 @@
  */
 #include "water.h"
 #include <X11/Xlib.h>
-#include <stdio.h>
+#include <cstdio>
 
 Water::Water() {
 	const char *ofc = "org.freedesktop.compiz";
-	GError *error = 0;
+	GError *error = nullptr;
 	bus = dbus_g_bus_get(DBUS_BUS_SESSION, &error);
 	if (!bus) {
 		g_error_free(error);
@@ -32,10 +32,10 @@ Water::Water() {
 
 void Water::draw(Point p, Point q) {
 	dbus_g_proxy_call_no_reply(line_proxy, "activate",
-			G_TYPE_STRING, "root", G_TYPE_INT, gint(ROOT),
-			G_TYPE_STRING, "x0",   G_TYPE_INT, gint32(p.x),
-			G_TYPE_STRING, "y0",   G_TYPE_INT, gint32(p.y),
-			G_TYPE_STRING, "x1",   G_TYPE_INT, gint32(q.x),
-			G_TYPE_STRING, "y1",   G_TYPE_INT, gint32(q.y),
+			G_TYPE_STRING, "root", G_TYPE_INT, static_cast<gint>(ROOT),
+			G_TYPE_STRING, "x0",   G_TYPE_INT, static_cast<gint32>(p.x),
+			G_TYPE_STRING, "y0",   G_TYPE_INT, static_cast<gint32>(p.y),
+			G_TYPE_STRING, "x1",   G_TYPE_INT, static_cast<gint32>(q.x),
+			G_TYPE_STRING, "y1",   G_TYPE_INT, static_cast<gint32>(q.y),
 			G_TYPE_INVALID);
 }

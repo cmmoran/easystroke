@@ -70,8 +70,8 @@ void Stroke::draw(Cairo::RefPtr<Cairo::Surface> surface, int x, int y, int w, in
 	ctx->restore();
 	Glib::ustring str;
 	if (modifiers != AnyModifier) {
-		str = Gtk::AccelGroup::get_label(0, (Gdk::ModifierType)modifiers);
-		if (str == "")
+		str = Gtk::AccelGroup::get_label(0, static_cast<Gdk::ModifierType>(modifiers));
+		if (str.empty())
 			str = "<>";
 		else
 			str = "<" + str.substr(0, str.size()-1) + ">";
@@ -82,7 +82,7 @@ void Stroke::draw(Cairo::RefPtr<Cairo::Surface> surface, int x, int y, int w, in
 		str += "x";
 	if (button)
 		str += Glib::ustring::compose("%1", button);
-	if (str == "")
+	if (str.empty())
 		return;
 	if (inv)
 		ctx->set_source_rgba(0.0, 1.0, 1.0, 0.8);
@@ -127,9 +127,9 @@ Glib::RefPtr<Gdk::Pixbuf> Stroke::draw_(int size, double width, bool inv) const 
 			guint8 g = px[1];
 			guint8 b = px[0];
 			if (a) {
-				px[0] = ((((guint)r) << 8) - r) / a;
-				px[1] = ((((guint)g) << 8) - g) / a;
-				px[2] = ((((guint)b) << 8) - b) / a;
+				px[0] = ((static_cast<guint>(r) << 8) - r) / a;
+				px[1] = ((static_cast<guint>(g) << 8) - g) / a;
+				px[2] = ((static_cast<guint>(b) << 8) - b) / a;
 			}
 			px += 4;
 		}
@@ -198,8 +198,8 @@ Win::Win() : actions(new Actions), prefs_tab(new Prefs), stats(new Stats) {
 	widgets->get_widget("button_hide2", button_hide[1]);
 	widgets->get_widget("button_hide3", button_hide[2]);
 	widgets->get_widget("button_hide4", button_hide[3]);
-	for (int i = 0; i < 4; i++)
-		button_hide[i]->signal_clicked().connect(sigc::mem_fun(win, &Gtk::Window::hide));
+	for (auto & i : button_hide)
+		i->signal_clicked().connect(mem_fun(win, &Gtk::Window::hide));
 }
 
 extern void icon_warning();
@@ -211,19 +211,21 @@ static gboolean icon_clicked(GtkStatusIcon *status_icon, GdkEventButton *event, 
 }
 
 void Win::show_hide_icon() {
-	bool show = prefs.tray_icon.get();
+	const bool show = prefs.tray_icon.get();
 	if (show) {
-		if (icon)
+		if (icon) {
 			return;
-		icon = Gtk::StatusIcon::create("");
+		}
+		icon = Gtk::StatusIcon::create("easystroke.svg/");
 		icon->signal_size_changed().connect(sigc::mem_fun(*this, &Win::on_icon_size_changed));
 		icon->signal_activate().connect(sigc::mem_fun(*this, &Win::show_hide));
 		icon->signal_popup_menu().connect(sigc::mem_fun(*this, &Win::show_popup));
 		if (gtk_major_version > 2 || (gtk_major_version == 2 && gtk_minor_version >= 15))
 			g_signal_connect(icon->gobj(), "button-release-event", G_CALLBACK(icon_clicked), nullptr);
 	} else {
-		if (icon)
+		if (icon) {
 			icon.reset();
+		}
 		icon_warning();
 	}
 }
@@ -254,6 +256,10 @@ void Win::show_hide() {
 
 void Win::show() {
 	win->show();
+}
+
+void Win::maximize() {
+	win->maximize();
 }
 
 void Win::hide() {
@@ -288,5 +294,5 @@ void error_dialog(const Glib::ustring &text) {
 }
 
 Glib::ustring app_name_hr(Glib::ustring src) {
-	return src == "" ? _("<unnamed>") : src;
+	return src.empty() ? _("<unnamed>") : src;
 }
