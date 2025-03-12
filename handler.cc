@@ -20,6 +20,7 @@
 #include "prefs.h" // Why?
 #include <gtkmm.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/Xrandr.h>
 #include <X11/extensions/XTest.h>
 #include <X11/XKBlib.h>
 #include <X11/Xproto.h>
@@ -116,12 +117,16 @@ void XState::activate_window(Window w, Time t) {
     static XAtom WM_PROTOCOLS("WM_PROTOCOLS");
     static XAtom WM_TAKE_FOCUS("WM_TAKE_FOCUS");
 
-    if (w == get_window(ROOT, *_NET_ACTIVE_WINDOW))
+    if (w == get_window(ROOT, *_NET_ACTIVE_WINDOW)) {
+        printf("Ignoring ROOT active window\n");
         return;
+    }
 
     const Atom window_type = get_atom(w, *_NET_WM_WINDOW_TYPE);
-    if (window_type == *_NET_WM_WINDOW_TYPE_DOCK)
+    if (window_type == *_NET_WM_WINDOW_TYPE_DOCK) {
+        printf("Ignoring dock window\n");
         return;
+    }
 
     XWMHints *wm_hints = XGetWMHints(dpy, w);
     if (wm_hints) {
@@ -131,15 +136,19 @@ void XState::activate_window(Window w, Time t) {
             return;
     }
 
-    if (!has_atom(w, *WM_PROTOCOLS, *WM_TAKE_FOCUS))
+    if (!has_atom(w, *WM_PROTOCOLS, *WM_TAKE_FOCUS)) {
         return;
+    }
 
     XWindowAttributes attr;
-    if (XGetWindowAttributes(dpy, w, &attr) && attr.override_redirect)
+    if (XGetWindowAttributes(dpy, w, &attr) && attr.override_redirect) {
+        printf("Ignoring override_redirect window\n");
         return;
+    }
 
-    if (verbosity >= 3)
+    if (verbosity >= 3) {
         printf("Giving focus to window 0x%lx\n", w);
+    }
 
     icccm_client_message(w, *WM_TAKE_FOCUS, t);
 }
@@ -230,22 +239,125 @@ static void print_coordinates(XIValuatorState *valuators, double *values) {
 }
 
 static double get_axis(XIValuatorState &valuators, int axis) {
-    if (axis < 0 || !XIMaskIsSet(valuators.mask, axis))
+    if (axis < 0 || !XIMaskIsSet(valuators.mask, axis)) {
         return 0.0;
+    }
     const double *val = valuators.values;
-    for (int i = 0; i < axis; i++)
-        if (XIMaskIsSet(valuators.mask, i))
+    for (int i = 0; i < axis; i++) {
+        if (XIMaskIsSet(valuators.mask, i)) {
             val++;
+        }
+    }
     return *val;
 }
 
 void XState::report_xi2_event(XIDeviceEvent *event, const char *type) {
     printf("%s (XI2): ", type);
-    if (event->detail)
+    if (event->detail) {
         printf("%d ", event->detail);
+    }
     printf("(%.3f, %.3f) - (", event->root_x, event->root_y);
     print_coordinates(&event->valuators, event->valuators.values);
     printf(") at t = %ld\n", event->time);
+}
+
+bool XState::is_synergy_bound(int x, int y) {
+    return x >= x_min && x <= x_max && y >= y_min && y <= y_max;
+}
+
+bool XState::is_cycling_detected(MouseState currentState) {
+    // Detect if the state transitions from EDGE to CENTER (Cycling behavior)
+    if (prevState == BOUND && currentState == CENTER) {
+        transitionOutCount = 0;
+        transitionCount++;
+
+        // If we've seen the transition twice, we can assume it's controlled
+        if (transitionCount >= requiredTransitions) {
+            if (!controlled) {
+                printf("Transition in threshold reached!\n");
+            }
+            transitionCount = 0;
+            prevState = currentState;
+            return true;
+        }
+        return false;
+    }
+    if (prevState == BOUND && currentState == OUTSIDE) {
+        transitionCount = 0;
+        transitionOutCount++;
+
+        if (transitionOutCount >= requiredOutTransitions) {
+            if (controlled) {
+                printf("Transition out threshold reached!\n");
+            }
+            transitionOutCount = 0;
+            prevState = currentState;
+            return true;
+        }
+        return false;
+    }
+    if (prevState == BOUND && currentState == BOUND) {
+        return false;
+    }
+    transitionCount = 0;
+    transitionOutCount = 0;
+    // Update the previous state
+    prevState = currentState;
+    return false;
+}
+
+MouseState XState::get_mouse_state(int x, int y) {
+    bool in_bounds = is_synergy_bound(x, y);
+    int centerX = (x_min + x_max) / 2;
+    int centerY = (y_min + y_max) / 2;
+    bool near_center = std::abs(x - centerX) <= cycling_threshold && std::abs(y - centerY) <= cycling_threshold;
+
+    switch (prevState) {
+        case NONE:
+            if (near_center) {
+                printf("%s -> Center ( %d, %d )\n", state_name[prevState], x, y);
+                prevState = CENTER;
+            } else if (in_bounds) {
+                printf("%s -> Bound ( %d, %d)\n", state_name[prevState], x, y);
+                prevState = BOUND;
+            } else {
+                printf("%s -> Outside ( %d, %d)\n", state_name[prevState], x, y);
+                prevState = OUTSIDE;
+            }
+
+            return prevState;
+        case CENTER:
+            if (near_center) {
+                return CENTER;
+            }
+            if (!controlled && in_bounds) {
+                printf("%s -> Bound ( %d, %d )\n", state_name[prevState], x, y);
+                return BOUND;
+            }
+            return OUTSIDE;
+        case OUTSIDE:
+            if (!controlled && near_center) {
+                printf("%s -> Center ( %d, %d )\n", state_name[prevState], x, y);
+                return CENTER;
+            }
+            if (controlled && in_bounds) {
+                printf("%s -> Bound ( %d, %d )\n", state_name[prevState], x, y);
+                return BOUND;
+            }
+            break;
+        case BOUND: {
+            if (!controlled && near_center) {
+                printf("%s -> Center ( %d, %d )\n", state_name[prevState], x, y);
+                return CENTER;
+            }
+            if (!in_bounds) {
+                printf("%s -> Outside ( %d, %d )\n", state_name[prevState], x, y);
+                return OUTSIDE;
+            }
+        }
+    }
+
+    return prevState;
 }
 
 void XState::handle_xi2_event(XIDeviceEvent *event) {
@@ -254,9 +366,7 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
             if (verbosity >= 3)
                 report_xi2_event(event, "Press");
             if (!xinput_pressed.empty()) {
-                printf("xinput_pressed is not empty...\n");
                 if (!current_dev || current_dev->dev != event->deviceid) {
-                    printf("... and %s\n", !current_dev ? "current_dev is null" : current_dev->dev != event->deviceid ? "current_dev is not event device":"unknown");
                     break;
                 }
             } else {
@@ -315,6 +425,26 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
             H->release(event->detail, create_triple(event->root_x, event->root_y, event->time));
             break;
         case XI_Motion:
+            {
+                MouseState currentState = get_mouse_state(event->root_x, event->root_y);
+                bool cycling_detected = is_cycling_detected(currentState);
+                if (cycling_detected || prevState != currentState) {
+                    if (prevState != currentState) {
+                        printf("Mouse state changed from %s to %s ( %0.2f, %0.2f )\n", state_name[prevState], state_name[currentState], event->root_x, event->root_y);
+                    }
+                    if (cycling_detected) {
+                        if (!controlled && prevState == CENTER && currentState == CENTER) {
+                            printf("Mouse is now controlled by Synergy (Cycling detected)!\n");
+                            controlled = true;
+                            grabber->suspend();
+                        } else if (prevState == OUTSIDE && currentState == OUTSIDE) {
+                            printf("Mouse is likely no longer controlled by Synergy\n");
+                            controlled = false;
+                            grabber->resume();
+                        }
+                    }
+                }
+            }
             if (verbosity >= 5) {
                 report_xi2_event(event, "Motion");
             }
@@ -368,8 +498,9 @@ bool XState::handle(Glib::IOCondition) {
         try {
             XEvent ev;
             XNextEvent(dpy, &ev);
-            if (!grabber->handle(ev))
+            if (!grabber->handle(ev)) {
                 handle_event(ev);
+            }
         } catch (GrabFailedException &e) {
             printf(_("Error: %s\n"), e.what());
             bail_out();
@@ -382,16 +513,19 @@ void XState::update_core_mapping() {
     unsigned char map[MAX_BUTTONS];
     const int n = XGetPointerMapping(dpy, map, MAX_BUTTONS);
     core_inv_map.clear();
-    for (int i = n - 1; i; i--)
-        if (map[i] == i + 1)
+    for (int i = n - 1; i; i--) {
+        if (map[i] == i + 1) {
             core_inv_map.erase(i + 1);
-        else
+        } else {
             core_inv_map[map[i]] = i + 1;
+        }
+    }
 }
 
 void XState::fake_core_button(guint b, bool press) {
-    if (core_inv_map.count(b))
+    if (core_inv_map.count(b)) {
         b = core_inv_map[b];
+    }
     XTestFakeButtonEvent(dpy, b, press, CurrentTime);
     XSync(dpy, False);
 }
@@ -415,8 +549,9 @@ void Handler::replace_child(Handler *c) {
     }
     Handler *new_handler = child ? child : this;
     grabber->grab(new_handler->grab_mode());
-    if (child)
+    if (child) {
         child->init();
+    }
     while (!xstate->queued.empty() && xstate->idle()) {
         (*xstate->queued.begin())();
         xstate->queued.pop_front();
@@ -803,8 +938,8 @@ public:
     }
 
     virtual void init() {
+        grabber->suspend();
         if (replay && !replay->empty()) {
-            grabber->suspend();
             const bool replay_first = !as.count(button2);
             auto i = replay->begin();
             if (replay_first) {
@@ -816,12 +951,10 @@ public:
             if (!replay_first) {
                 press(button2 ? button2 : button1, e);
             }
-            grabber->resume();
         } else {
-            grabber->suspend();
             press(button2 ? button2 : button1, e);
-            grabber->resume();
         }
+        grabber->resume();
         replay.reset();
     }
 
@@ -913,23 +1046,18 @@ public:
             replay_button = 0;
         }
         if (xstate->current_dev->master) {
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, CurrentTime);
         }
     }
 
     virtual void release(guint b, RTriple e) {
-        if (isRockerLeft) {
-            sticky_mods.reset();
-            mods.clear();
-            return parent->replace_child(nullptr);
-        }
-        if (isRockerRight) {
+        if (isRockerLeft || isRockerRight) {
             sticky_mods.reset();
             mods.clear();
             return parent->replace_child(nullptr);
         }
         if (xstate->current_dev->master) {
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, CurrentTime);
         }
         if (remap_to) {
             xstate->fake_core_button(remap_to, false);
@@ -1104,7 +1232,7 @@ protected:
         }
         if (use_timeout && is_gesture) {
             connections.erase(remove_if(connections.begin(), connections.end(),
-                                        sigc::bind(sigc::mem_fun(*this, &StrokeHandler::expired),
+                                        bind(mem_fun(*this, &StrokeHandler::expired),
                                                    std::hypot(e->x - last->x, e->y - last->y))), connections.end());
             connections.push_back(boost::make_shared<Connection>(this, button == Button1 ? main_radius : radius, final_timeout));
         }
@@ -1128,9 +1256,9 @@ protected:
         }
 
         if (prefs.move_back.get())
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), orig->x, orig->y, 0);
+            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), orig->x, orig->y, CurrentTime);
         else
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, CurrentTime);
 
         if (stroke_action) {
             (*stroke_action)(s);
@@ -1234,6 +1362,7 @@ protected:
 
     virtual void press(guint b, RTriple e) {
         if (current_app_window.get()) {
+            printf("Activating current window\n");
             XState::activate_window(current_app_window.get(), e->t);
         }
         replace_child(new StrokeHandler(b, e));
@@ -1288,7 +1417,26 @@ XState::XState() : current_dev(nullptr), in_proximity(false), accepted(true), mo
     ping_window = XCreateSimpleWindow(dpy, ROOT, 0, 0, 1, 1, 0, 0, 0);
     handler = new IdleHandler(this);
     handler->init();
+    screenWidth = DisplayWidth(dpy, 0);
+    screenHeight = DisplayHeight(dpy, 0);
+    // int centerX = 2 * (screenWidth / 3) + (screenWidth / 3) / 2;
+    // int centerY = screenHeight / 2;
+    int center_x = 0, center_y = 0;
+    if (!get_primary_monitor_center(&center_x, &center_y)) {
+        printf("Failed to get primary monitor center\n");
+        center_x = 2 * (screenWidth / 3) + (screenWidth / 3) / 2;
+        center_y = screenHeight / 2;
+    }
+    int boxSize = 250; // Synergy-controlled bounding box size
+
+    x_min = center_x - (boxSize / 2);
+    x_max = center_x + (boxSize / 2);
+    y_min = center_y - (boxSize / 2);
+    y_max = center_y + (boxSize / 2);
+    printf("Screen size: %d x %d\nCenter: %d x %d\nDims: x_min=%d x_max=%d y_min=%d y_max=%d\n", screenWidth, screenHeight, center_x, center_y, x_min, x_max, y_min, y_max);
 }
+
+const char *XState::state_name[4] = { "None", "Outside", "Bound", "Center"};
 
 void XState::run_action(RAction act) {
     printf("run_action\n");
@@ -1301,3 +1449,64 @@ void XState::run_action(RAction act) {
         return handler->replace_child(new ScrollHandler(mods));
     act->run();
 }
+
+bool XState::get_primary_monitor_center(int *center_x, int *center_y) {
+    if (!center_x || !center_y) return false; // Ensure valid pointers
+
+    // Open X Display
+    Display *display = XOpenDisplay(nullptr);
+    if (!display) {
+        printf("Failed to open X display\n");
+        return false;
+    }
+
+    // Get the root window
+    Window root = DefaultRootWindow(display);
+
+    // Get screen resources
+    XRRScreenResources *screenRes = XRRGetScreenResourcesCurrent(dpy, root);
+    if (!screenRes) {
+        printf("Failed to get screen resources\n");
+        XCloseDisplay(display);
+        return false;
+    }
+
+    // Get primary monitor output
+    RROutput primary_output = XRRGetOutputPrimary(display, root);
+    if (primary_output == None) {
+        printf("No primary monitor set, using first available monitor\n");
+        primary_output = screenRes->outputs[0]; // Fallback to the first output
+    }
+
+    // Get output info
+    XRROutputInfo *outputInfo = XRRGetOutputInfo(display, screenRes, primary_output);
+    if (!outputInfo || outputInfo->connection == RR_Disconnected) {
+        printf("Primary monitor not connected\n");
+        XRRFreeScreenResources(screenRes);
+        XCloseDisplay(display);
+        return false;
+    }
+
+    // Get CRTC Info
+    XRRCrtcInfo *crtcInfo = XRRGetCrtcInfo(display, screenRes, outputInfo->crtc);
+    if (!crtcInfo) {
+        printf("Failed to get CRTC info\n");
+        XRRFreeOutputInfo(outputInfo);
+        XRRFreeScreenResources(screenRes);
+        XCloseDisplay(display);
+        return false;
+    }
+
+    // Calculate monitor center
+    *center_x = crtcInfo->x + crtcInfo->width / 2;
+    *center_y = crtcInfo->y + crtcInfo->height / 2;
+
+    // Cleanup
+    XRRFreeCrtcInfo(crtcInfo);
+    XRRFreeOutputInfo(outputInfo);
+    XRRFreeScreenResources(screenRes);
+    XCloseDisplay(display);
+
+    return true; // Success
+}
+

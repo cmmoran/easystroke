@@ -437,8 +437,9 @@ void App::on_activate() {
     }
     win = new Win;
     add_window(win->get_window());
-    if (!actions.get_root()->size_rec())
+    if (!actions.get_root()->size_rec()) {
         win->get_window().show();
+    }
     hold();
 }
 

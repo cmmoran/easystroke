@@ -19,11 +19,20 @@
 #include "grabber.h"
 #include "actiondb.h"
 
+enum MouseState {
+	NONE,
+	OUTSIDE,
+	BOUND,
+	CENTER,
+};
+
 class Handler;
 
 class XState {
 	friend class Handler;
 public:
+	static const char *state_name[];
+
 	XState();
 
 	bool handle(Glib::IOCondition);
@@ -36,6 +45,9 @@ public:
 	void fake_core_button(guint b, bool press);
 	void fake_click(guint b);
 	void update_core_mapping();
+	bool is_synergy_bound(int mouse_x, int mouse_y);
+	bool is_cycling_detected(MouseState mouse_state);
+	MouseState get_mouse_state(int x, int y);
 
 	void remove_device(int deviceid);
 	void ungrab(int deviceid);
@@ -48,6 +60,7 @@ public:
 	void queue(sigc::slot<void> f);
 	std::string select_window();
 
+	static bool get_primary_monitor_center(int *center_x, int *center_y);
 	static void activate_window(Window w, Time t);
 	static Window get_window(Window w, Atom prop);
 	static Atom get_atom(Window w, Atom prop);
@@ -60,6 +73,13 @@ public:
 	std::set<guint> xinput_pressed;
 	guint modifiers;
 	std::map<guint, guint> core_inv_map;
+	int x_min, x_max, y_min, y_max; // Define Synergy controlled region
+	bool controlled = false;
+	int cycling_threshold = 2; // Threshold for cycling behavior near the edges or center of the bounding box
+	int screenWidth, screenHeight;
+	int transitionCount = 0, requiredTransitions = 2;         // Track the number of EDGE → CENTER transitions
+	int transitionOutCount = 0, requiredOutTransitions = 3;
+	MouseState prevState = NONE; // Initial state is outside the controlled area
 private:
 	Window ping_window;
 	Handler *handler;

@@ -27,7 +27,7 @@ CXXFLAGS += $(CXXSTD) -Wall $(DFLAGS) -DLOCALEDIR=\"$(LOCALEDIR)\" $(INCLUDES)
 CFLAGS   += -std=c11 -Wall $(DFLAGS) -DLOCALEDIR=\"$(LOCALEDIR)\" $(INCLUDES) -DGETTEXT_PACKAGE='"easystroke"'
 LDFLAGS  += $(DFLAGS)
 
-LIBS     = $(DFLAGS) -lboost_serialization -lX11 -lXext -lXi -lXfixes -lXtst $(shell pkg-config gtkmm-3.0 dbus-glib-1 --libs)
+LIBS     = $(DFLAGS) -lboost_serialization -lX11 -lXext -lXi -lXfixes -lXtst -lXrandr $(shell pkg-config gtkmm-3.0 dbus-glib-1 --libs)
 
 BINARY   = easystroke
 ICON     = easystroke.svg

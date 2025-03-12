@@ -35,12 +35,14 @@ void Stroke::draw(Cairo::RefPtr<Cairo::Surface> surface, int x, int y, int w, in
 		float sum = lambda / (1 - lambda);
 		std::vector<Point> y(n);
 		y[0] = points(0) * sum;
-		for (int j = 0; j < n-1; j++)
+		for (int j = 0; j < n-1; j++) {
 			y[j+1] = (y[j] + points(j)) * lambda;
+		}
 		std::vector<Point> z(n);
 		z[n-1] = points(n-1) * (-sum);
-		for (int j = n-1; j > 0; j--)
+		for (int j = n-1; j > 0; j--) {
 			z[j-1] = (z[j] - points(j)) * lambda;
+		}
 		for (int j = 0; j < n-1; j++) {
 			// j -> j+1
 			if (inv)
@@ -71,30 +73,37 @@ void Stroke::draw(Cairo::RefPtr<Cairo::Surface> surface, int x, int y, int w, in
 	Glib::ustring str;
 	if (modifiers != AnyModifier) {
 		str = Gtk::AccelGroup::get_label(0, static_cast<Gdk::ModifierType>(modifiers));
-		if (str.empty())
+		if (str.empty()) {
 			str = "<>";
-		else
+		} else {
 			str = "<" + str.substr(0, str.size()-1) + ">";
+		}
 	}
-	if (trigger)
+	if (trigger) {
 		str += Glib::ustring::compose("%1\xE2\x86\x92", trigger);
-	if (timeout)
+	}
+	if (timeout) {
 		str += "x";
-	if (button)
+	}
+	if (button) {
 		str += Glib::ustring::compose("%1", button);
-	if (str.empty())
+	}
+	if (str.empty()) {
 		return;
-	if (inv)
+	}
+	if (inv) {
 		ctx->set_source_rgba(0.0, 1.0, 1.0, 0.8);
-	else
+	} else {
 		ctx->set_source_rgba(1.0, 0.0, 0.0, 0.8);
+	}
 	float font_size = h*0.5;
 	Cairo::TextExtents te;
 	for (;;) {
 		ctx->set_font_size(font_size);
 		ctx->get_text_extents(str, te);
-		if (te.width < w)
+		if (te.width < w) {
 			break;
+		}
 		font_size *= 0.9;
 	}
 	ctx->move_to(x+w/2 - te.x_bearing - te.width/2, y+h/2 - te.y_bearing - te.height/2);
@@ -198,15 +207,17 @@ Win::Win() : actions(new Actions), prefs_tab(new Prefs), stats(new Stats) {
 	widgets->get_widget("button_hide2", button_hide[1]);
 	widgets->get_widget("button_hide3", button_hide[2]);
 	widgets->get_widget("button_hide4", button_hide[3]);
-	for (auto & i : button_hide)
+	for (auto & i : button_hide) {
 		i->signal_clicked().connect(mem_fun(win, &Gtk::Window::hide));
+	}
 }
 
 extern void icon_warning();
 
 static gboolean icon_clicked(GtkStatusIcon *status_icon, GdkEventButton *event, gpointer) {
-	if (event->button == 2)
+	if (event->button == 2) {
 		disabled.set(!disabled.get());
+	}
 	return TRUE;
 }
 
@@ -231,8 +242,9 @@ void Win::show_hide_icon() {
 }
 
 void Win::show_popup(guint button, guint32 activate_time) {
-	if (icon)
+	if (icon) {
 		icon->popup_menu_at_position(menu, button, activate_time);
+	}
 }
 
 extern const char *version_string;
@@ -248,10 +260,11 @@ void Win::show_about() {
 }
 
 void Win::show_hide() {
-	if (win->get_mapped())
+	if (win->get_mapped()) {
 		win->hide();
-	else
+	} else {
 		win->show();
+	}
 }
 
 void Win::show() {
@@ -270,19 +283,22 @@ bool Win::on_icon_size_changed(int size) {
 	icon_pb[0] = Stroke::trefoil()->draw(size);
 	icon_pb[1] = Stroke::trefoil()->draw(size);
 	icon_pb[1]->saturate_and_pixelate(icon_pb[1], 0.0, true);
-	if (icon)
+	if (icon) {
 		icon->set(icon_pb[disabled.get() ? 1 : 0]);
+	}
 	return true;
 }
 
 void Win::timeout() {
-	if (icon)
+	if (icon) {
 		icon->set(icon_pb[disabled.get() ? 1 : 0]);
+	}
 }
 
 void Win::set_icon(RStroke stroke, bool invert) {
-	if (!icon || icon->get_size() <= 0)
+	if (!icon || icon->get_size() <= 0) {
 		return;
+	}
 	icon->set(stroke->draw(icon->get_size(), 2.0, invert));
 	set_timeout(10000);
 }

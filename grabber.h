@@ -55,7 +55,7 @@ public:
 	Children children;
 	enum State { NONE, BUTTON, SELECT, RAW };
 	enum GrabState { GrabNo, GrabYes, GrabRaw };
-	static const char *state_name[4];
+	static const char *state_name[];
 
 	struct XiDevice {
 		int dev;

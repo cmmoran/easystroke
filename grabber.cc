@@ -97,8 +97,9 @@ unsigned int minimized_n = 0;
 
 void get_frame(Window w) {
     Window frame = xstate->get_window(w, *_NET_FRAME_WINDOW);
-    if (!frame)
+    if (!frame) {
         return;
+    }
     frame_win.add(frame, w);
 }
 
@@ -115,8 +116,9 @@ Children::Children(Window w) : parent(w) {
 bool Children::handle(XEvent &ev) {
     switch (ev.type) {
         case CreateNotify:
-            if (ev.xcreatewindow.parent != parent)
+            if (ev.xcreatewindow.parent != parent) {
                 return false;
+            }
             add(ev.xcreatewindow.window);
             return true;
         case DestroyNotify:
@@ -126,21 +128,26 @@ bool Children::handle(XEvent &ev) {
             destroy(ev.xdestroywindow.window);
             return true;
         case ReparentNotify:
-            if (ev.xreparent.event != parent)
+            if (ev.xreparent.event != parent) {
                 return false;
-            if (ev.xreparent.window == parent)
+            }
+            if (ev.xreparent.window == parent) {
                 return false;
-            if (ev.xreparent.parent == parent)
+            }
+            if (ev.xreparent.parent == parent) {
                 add(ev.xreparent.window);
-            else
+            } else {
                 remove(ev.xreparent.window);
+            }
             return true;
         case PropertyNotify:
             if (ev.xproperty.atom == *_NET_FRAME_WINDOW) {
-                if (ev.xproperty.state == PropertyDelete)
+                if (ev.xproperty.state == PropertyDelete) {
                     frame_win.erase1(ev.xproperty.window);
-                if (ev.xproperty.state == PropertyNewValue)
+                }
+                if (ev.xproperty.state == PropertyNewValue) {
                     get_frame(ev.xproperty.window);
+                }
                 return true;
             }
             if (ev.xproperty.atom == *_NET_WM_STATE) {
@@ -150,10 +157,12 @@ bool Children::handle(XEvent &ev) {
                 }
                 const bool was_hidden = std::find(minimized.begin(), minimized.end(), ev.xproperty.window) != minimized.end();
                 const bool is_hidden = XState::has_atom(ev.xproperty.window, *_NET_WM_STATE, *_NET_WM_STATE_HIDDEN);
-                if (was_hidden && !is_hidden)
+                if (was_hidden && !is_hidden) {
                     minimized.remove(ev.xproperty.window);
-                if (is_hidden && !was_hidden)
+                }
+                if (is_hidden && !was_hidden) {
                     minimized.push_back(ev.xproperty.window);
+                }
                 return true;
             }
             return false;
@@ -195,14 +204,17 @@ static void activate(Window w, Time t) {
 }
 
 std::string get_wm_class(Window w) {
-    if (!w)
+    if (!w) {
         return "";
+    }
     XClassHint ch;
-    if (!XGetClassHint(dpy, w, &ch))
+    if (!XGetClassHint(dpy, w, &ch)) {
         return "";
+    }
     std::string ans = ch.res_name;
     XFree(ch.res_name);
     XFree(ch.res_class);
+    printf("WM_CLASS: %s\n", ans.c_str());
     return ans;
 }
 
@@ -306,6 +318,7 @@ bool Grabber::init_xi() {
     global_mask.mask = data;
     global_mask.mask_len = sizeof(data);
     XISetMask(global_mask.mask, XI_HierarchyChanged);
+    XISetMask(global_mask.mask, XI_Motion);
 
     XISelectEvents(dpy, ROOT, &global_mask, 1);
 
@@ -610,25 +623,29 @@ auto find_wm_state(const Window w) -> Window {
 }
 
 Window get_app_window(Window w) {
-    if (!w)
+    if (!w) {
         return w;
-
-    if (frame_win.contains1(w))
-        return frame_win.find1(w);
-
-    if (frame_child.contains1(w))
-        return frame_child.find1(w);
-
-    const Window w2 = find_wm_state(w);
-    if (w2) {
-        frame_child.add(w, w2);
-        if (w2 != w) {
-            w = w2;
-            XSelectInput(dpy, w2, StructureNotifyMask | PropertyChangeMask);
-        }
-        return w2;
     }
-    if (verbosity >= 1)
+
+    if (frame_win.contains1(w)) {
+        return frame_win.find1(w);
+    }
+
+    if (frame_child.contains1(w)) {
+        return frame_child.find1(w);
+    }
+
+    Window w2 = find_wm_state(w);
+	if (w2) {
+		frame_child.add(w, w2);
+		if (w2 != w) {
+			w = w2;
+			XSelectInput(dpy, w2, StructureNotifyMask | PropertyChangeMask);
+		}
+		return w2;
+	}
+	if (verbosity >= 1) {
         printf("Window 0x%lx does not have an associated top-level window\n", w);
+    }
     return w;
 }
