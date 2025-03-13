@@ -564,24 +564,71 @@ bool Actions::select_app(const Gtk::TreeModel::Path& path, const Gtk::TreeModel:
 }
 
 void Actions::on_add_app() {
-	const std::string name = grabber->select_window();
-	if (actions.apps.count(name)) {
-		apps_model->foreach(sigc::bind(sigc::mem_fun(*this, &Actions::select_app), actions.apps[name]));
-		return;
-	}
-	ActionListDiff *parent = action_list->app ? actions.get_root() : action_list;
-	ActionListDiff *child = parent->add_child(name, true);
-	const Gtk::TreeNodeChildren &ch = parent == actions.get_root() ?
-		apps_model->children().begin()->children() :
-		apps_view->get_selection()->get_selected()->children();
-	const Gtk::TreeRow row = *(apps_model->append(ch));
-	row[ca.app] = app_name_hr(name);
-	row[ca.actions] = child;
-	actions.apps[name] = child;
-	Gtk::TreePath path = apps_model->get_path(row);
-	apps_view->expand_to_path(path);
-	apps_view->set_cursor(path);
-	update_actions();
+    const std::string name = grabber->select_window();
+
+    if (actions.apps.count(name)) {
+        apps_model->foreach(bind(sigc::mem_fun(*this, &Actions::select_app), actions.apps[name]));
+        return;
+    }
+
+    // Find the selected row
+    Gtk::TreeModel::iterator selected_iter = apps_view->get_selection()->get_selected();
+
+    ActionListDiff *parent = nullptr;
+    Gtk::TreeModel::iterator parent_iter;
+
+    if (selected_iter) {
+        // Get the initially selected row's associated ActionListDiff
+        ActionListDiff *selected_parent = (*selected_iter)[ca.actions];
+
+        // Traverse upwards until we find a parent where `app == false`
+        while (selected_parent && selected_parent->app) {
+            Gtk::TreeModel::iterator selected_path_iter = selected_iter;
+            Gtk::TreePath selected_path = apps_model->get_path(selected_path_iter);
+
+            if (!selected_path.up()) break; // Can't go higher
+
+            selected_iter = apps_model->get_iter(selected_path);
+            if (!selected_iter) break;
+
+            selected_parent = (*selected_iter)[ca.actions];
+        }
+
+        // Now, `selected_parent` should be the first ancestor where `app == false`
+        parent = selected_parent;
+        parent_iter = selected_iter; // Store the correct parent iterator
+    }
+
+    // If no valid parent was found, default to root
+    if (!parent) {
+        parent = action_list->app ? actions.get_root() : action_list;
+        parent_iter = apps_model->children().begin();
+    }
+
+    // Create the new child under the correct parent
+    ActionListDiff *child = parent->add_child(name, true);
+
+    // Insert the new row **inside the parent**, not as a sibling
+    Gtk::TreeModel::iterator new_row;
+    if (parent_iter) {
+        new_row = apps_model->append(parent_iter->children()); // Insert as a child
+    } else {
+        new_row = apps_model->append();
+    }
+
+    // Assign values to the new row
+    Gtk::TreeRow row = *new_row;
+    row[ca.app] = app_name_hr(name);
+    row[ca.actions] = child;
+	row[ca.count] = child->count_actions();
+    actions.apps[name] = child;
+
+    // Select and expand the new row
+    Gtk::TreePath path = apps_model->get_path(row);
+    apps_view->expand_to_path(path);
+    apps_view->set_cursor(path);
+
+    update_actions();
 }
 
 void Actions::on_remove_app() {
@@ -829,8 +876,8 @@ void Actions::on_selection_changed() {
 	bool resettable = false;
 	if (n) {
 		std::vector<Gtk::TreePath> paths = tv.get_selection()->get_selected_rows();
-		for (std::vector<Gtk::TreePath>::iterator i = paths.begin(); i != paths.end(); ++i) {
-			Gtk::TreeRow row(*tm->get_iter(*i));
+		for (auto & path : paths) {
+			Gtk::TreeRow row(*tm->get_iter(path));
 			if (action_list->resettable(row[cols.id])) {
 				resettable = true;
 				break;

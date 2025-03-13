@@ -359,7 +359,7 @@ static void enabled_activated(GSimpleAction *simple, GVariant *parameter, gpoint
 }
 
 void App::on_startup() {
-    Gtk::Application::on_startup();
+    Application::on_startup();
 
     Glib::RefPtr<Gio::SimpleAction> action;
     action = Gio::SimpleAction::create("about");

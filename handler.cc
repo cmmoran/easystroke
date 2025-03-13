@@ -25,7 +25,6 @@
 #include <X11/XKBlib.h>
 #include <X11/Xproto.h>
 #include <cmath>  // std::abs(float)
-#include <X11/cursorfont.h>
 using std::abs;
 
 XState *xstate = nullptr;
@@ -274,7 +273,7 @@ bool XState::is_cycling_detected(MouseState currentState) {
         // If we've seen the transition twice, we can assume it's controlled
         if (transitionCount >= requiredTransitions) {
             if (!controlled) {
-                printf("Transition in threshold reached!\n");
+                if (verbosity >= 4) printf("Transition in threshold reached!\n");
             }
             transitionCount = 0;
             prevState = currentState;
@@ -288,7 +287,7 @@ bool XState::is_cycling_detected(MouseState currentState) {
 
         if (transitionOutCount >= requiredOutTransitions) {
             if (controlled) {
-                printf("Transition out threshold reached!\n");
+                if (verbosity >= 4) printf("Transition out threshold reached!\n");
             }
             transitionOutCount = 0;
             prevState = currentState;
@@ -315,13 +314,13 @@ MouseState XState::get_mouse_state(int x, int y) {
     switch (prevState) {
         case NONE:
             if (near_center) {
-                printf("%s -> Center ( %d, %d )\n", state_name[prevState], x, y);
+                if (verbosity >= 4) printf("%s -> Center ( %d, %d )\n", state_name[prevState], x, y);
                 prevState = CENTER;
             } else if (in_bounds) {
-                printf("%s -> Bound ( %d, %d)\n", state_name[prevState], x, y);
+                if (verbosity >= 4) printf("%s -> Bound ( %d, %d)\n", state_name[prevState], x, y);
                 prevState = BOUND;
             } else {
-                printf("%s -> Outside ( %d, %d)\n", state_name[prevState], x, y);
+                if (verbosity >= 4) printf("%s -> Outside ( %d, %d)\n", state_name[prevState], x, y);
                 prevState = OUTSIDE;
             }
 
@@ -331,27 +330,27 @@ MouseState XState::get_mouse_state(int x, int y) {
                 return CENTER;
             }
             if (!controlled && in_bounds) {
-                printf("%s -> Bound ( %d, %d )\n", state_name[prevState], x, y);
+                if (verbosity >= 4) printf("%s -> Bound ( %d, %d )\n", state_name[prevState], x, y);
                 return BOUND;
             }
             return OUTSIDE;
         case OUTSIDE:
             if (!controlled && near_center) {
-                printf("%s -> Center ( %d, %d )\n", state_name[prevState], x, y);
+                if (verbosity >= 4) printf("%s -> Center ( %d, %d )\n", state_name[prevState], x, y);
                 return CENTER;
             }
             if (controlled && in_bounds) {
-                printf("%s -> Bound ( %d, %d )\n", state_name[prevState], x, y);
+                if (verbosity >= 4) printf("%s -> Bound ( %d, %d )\n", state_name[prevState], x, y);
                 return BOUND;
             }
             break;
         case BOUND: {
             if (!controlled && near_center) {
-                printf("%s -> Center ( %d, %d )\n", state_name[prevState], x, y);
+                if (verbosity >= 4) printf("%s -> Center ( %d, %d )\n", state_name[prevState], x, y);
                 return CENTER;
             }
             if (!in_bounds) {
-                printf("%s -> Outside ( %d, %d )\n", state_name[prevState], x, y);
+                if (verbosity >= 4) printf("%s -> Outside ( %d, %d )\n", state_name[prevState], x, y);
                 return OUTSIDE;
             }
         }
@@ -430,15 +429,15 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
                 bool cycling_detected = is_cycling_detected(currentState);
                 if (cycling_detected || prevState != currentState) {
                     if (prevState != currentState) {
-                        printf("Mouse state changed from %s to %s ( %0.2f, %0.2f )\n", state_name[prevState], state_name[currentState], event->root_x, event->root_y);
+                        if (verbosity >= 4) printf("Mouse state changed from %s to %s ( %0.2f, %0.2f )\n", state_name[prevState], state_name[currentState], event->root_x, event->root_y);
                     }
                     if (cycling_detected) {
                         if (!controlled && prevState == CENTER && currentState == CENTER) {
-                            printf("Mouse is now controlled by Synergy (Cycling detected)!\n");
+                            if (verbosity >= 3) printf("Mouse is now controlled by Synergy (Cycling detected)!\n");
                             controlled = true;
                             grabber->suspend();
                         } else if (prevState == OUTSIDE && currentState == OUTSIDE) {
-                            printf("Mouse is likely no longer controlled by Synergy\n");
+                            if (verbosity >= 3) printf("Mouse is likely no longer controlled by Synergy\n");
                             controlled = false;
                             grabber->resume();
                         }
@@ -1453,47 +1452,37 @@ void XState::run_action(RAction act) {
 bool XState::get_primary_monitor_center(int *center_x, int *center_y) {
     if (!center_x || !center_y) return false; // Ensure valid pointers
 
-    // Open X Display
-    Display *display = XOpenDisplay(nullptr);
-    if (!display) {
-        printf("Failed to open X display\n");
-        return false;
-    }
-
     // Get the root window
-    Window root = DefaultRootWindow(display);
+    Window root = DefaultRootWindow(dpy);
 
     // Get screen resources
     XRRScreenResources *screenRes = XRRGetScreenResourcesCurrent(dpy, root);
     if (!screenRes) {
         printf("Failed to get screen resources\n");
-        XCloseDisplay(display);
         return false;
     }
 
     // Get primary monitor output
-    RROutput primary_output = XRRGetOutputPrimary(display, root);
+    RROutput primary_output = XRRGetOutputPrimary(dpy, root);
     if (primary_output == None) {
         printf("No primary monitor set, using first available monitor\n");
         primary_output = screenRes->outputs[0]; // Fallback to the first output
     }
 
     // Get output info
-    XRROutputInfo *outputInfo = XRRGetOutputInfo(display, screenRes, primary_output);
+    XRROutputInfo *outputInfo = XRRGetOutputInfo(dpy, screenRes, primary_output);
     if (!outputInfo || outputInfo->connection == RR_Disconnected) {
         printf("Primary monitor not connected\n");
         XRRFreeScreenResources(screenRes);
-        XCloseDisplay(display);
         return false;
     }
 
     // Get CRTC Info
-    XRRCrtcInfo *crtcInfo = XRRGetCrtcInfo(display, screenRes, outputInfo->crtc);
+    XRRCrtcInfo *crtcInfo = XRRGetCrtcInfo(dpy, screenRes, outputInfo->crtc);
     if (!crtcInfo) {
         printf("Failed to get CRTC info\n");
         XRRFreeOutputInfo(outputInfo);
         XRRFreeScreenResources(screenRes);
-        XCloseDisplay(display);
         return false;
     }
 
@@ -1505,7 +1494,6 @@ bool XState::get_primary_monitor_center(int *center_x, int *center_y) {
     XRRFreeCrtcInfo(crtcInfo);
     XRRFreeOutputInfo(outputInfo);
     XRRFreeScreenResources(screenRes);
-    XCloseDisplay(display);
 
     return true; // Success
 }

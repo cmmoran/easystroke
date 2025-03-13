@@ -238,7 +238,7 @@ class ActionListDiff {
 
 	void update_order() {
 		int j = 0;
-		for (auto i = order.begin(); i != order.end(); ++i, j++) {
+		for (auto i = order.begin(); i != order.end(); ++i, ++j) {
 			(*i)->level = level;
 			(*i)->i = j;
 		}

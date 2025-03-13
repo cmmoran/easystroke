@@ -214,7 +214,6 @@ std::string get_wm_class(Window w) {
     std::string ans = ch.res_name;
     XFree(ch.res_name);
     XFree(ch.res_class);
-    printf("WM_CLASS: %s\n", ans.c_str());
     return ans;
 }
 
