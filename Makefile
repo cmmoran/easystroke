@@ -21,7 +21,7 @@ LOCALEDIR= $(PREFIX)/share/locale
 #DFLAGS  =
 OFLAGS   = -O2
 AOFLAGS  = -O3
-CXXSTD = -std=c++11
+CXXSTD = -std=c++20
 INCLUDES = $(shell pkg-config gtkmm-3.0 dbus-glib-1 --cflags)
 CXXFLAGS += $(CXXSTD) -Wall $(DFLAGS) -DLOCALEDIR=\"$(LOCALEDIR)\" $(INCLUDES)
 CFLAGS   += -std=c11 -Wall $(DFLAGS) -DLOCALEDIR=\"$(LOCALEDIR)\" $(INCLUDES) -DGETTEXT_PACKAGE='"easystroke"'

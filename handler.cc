@@ -255,7 +255,9 @@ void XState::report_xi2_event(XIDeviceEvent *event, const char *type) {
     if (event->detail) {
         printf("%d ", event->detail);
     }
-    printf("(%.3f, %.3f) - (", event->root_x, event->root_y);
+    if (std::strcmp(type, "RawMotion") != 0) {
+        printf("(%.3f, %.3f) - (", event->root_x, event->root_y);
+    }
     print_coordinates(&event->valuators, event->valuators.values);
     printf(") at t = %ld\n", event->time);
 }
@@ -453,13 +455,73 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
             H->motion(create_triple(event->root_x, event->root_y, event->time));
             break;
         case XI_RawMotion:
-            in_proximity = get_axis(reinterpret_cast<XIRawEvent *>(event)->valuators, current_dev->proximity_axis);
+            if (current_dev && current_dev->dev == event->deviceid) {
+                in_proximity = get_axis(reinterpret_cast<XIRawEvent *>(event)->valuators, current_dev->proximity_axis);
+            }
             handle_raw_motion(reinterpret_cast<XIRawEvent *>(event));
             break;
         case XI_HierarchyChanged:
             if (grabber->hierarchy_changed(reinterpret_cast<XIHierarchyEvent *>(event))) {
                 win->prefs_tab->update_device_list();
             }
+        case XI_BarrierHit: {
+                const XIBarrierEvent *ev = reinterpret_cast<XIBarrierEvent *>(event);
+                XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
+                XFlush(dpy);
+                if (ev->barrier == top) {
+                    if (verbosity >= 3) printf("Top barrier hit %s (%0.2f, %0.2f)\n", controlled ? "controlled" : "uncontrolled", ev->root_x, ev->root_y);
+                } else if (ev->barrier == bottom) {
+                    if (verbosity >= 3) printf("Bottom barrier hit %s (%0.2f, %0.2f)\n", controlled ? "controlled" : "uncontrolled", ev->root_x, ev->root_y);
+                } else if (ev->barrier == left) {
+                    if (verbosity >= 3) printf("Left barrier hit %s (%0.2f, %0.2f)\n", controlled ? "controlled" : "uncontrolled", ev->root_x, ev->root_y);
+                } else if (ev->barrier == right) {
+                    if (verbosity >= 3) printf("Right barrier hit %s (%0.2f, %0.2f)\n", controlled ? "controlled" : "uncontrolled", ev->root_x, ev->root_y);
+                }
+            }
+            break;
+        case XI_BarrierLeave: {
+            const XIBarrierEvent *ev = reinterpret_cast<XIBarrierEvent *>(event);
+            XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
+            XFlush(dpy);
+            if (ev->barrier == top) {
+                if (ev->root_y > screenTop) {
+                    prevState = OUTSIDE;
+                    controlled = false;
+                    grabber->resume();
+                    if (verbosity >= 3) printf("Top barrier leave (resumed) uncontrolled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
+                } else if (ev->root_y <= screenTop) {
+                    prevState = OUTSIDE;
+                    controlled = true;
+                    grabber->suspend();
+                    if (verbosity >= 3) printf("Top barrier leave (suspended) controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
+                }
+            } else if (ev->barrier == bottom) {
+                if (ev->root_y >= screenBot) {
+                    prevState = OUTSIDE;
+                    controlled = true;
+                    grabber->suspend();
+                    if (verbosity >= 3) printf("Bottom barrier leave DOWN controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
+                }
+            } else if (ev->barrier == left) {
+                if (ev->root_x <= screenLeft) {
+                    prevState = OUTSIDE;
+                    controlled = true;
+                    grabber->suspend();
+                    if (verbosity >= 3) printf("Left barrier leave LEFT controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
+                }
+            } else if (ev->barrier == right) {
+                if (ev->root_x >= screenRight) {
+                    prevState = OUTSIDE;
+                    controlled = true;
+                    grabber->suspend();
+                    if (verbosity >= 3) printf("Right barrier leave RIGHT controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
+                }
+            }
+            if (verbosity >= 3)
+                printf("[Barrier Leave] Barrier properties: %d, %d, %d, %d\n", screenLeft, screenTop, screenRight, screenBot);
+        }
+        break;
+
     }
 }
 
@@ -477,7 +539,7 @@ void XState::handle_raw_motion(XIRawEvent *event) {
         abs_x = false;
 
     if (XIMaskIsSet(event->valuators.mask, 1))
-        y = event->raw_values[i++];
+        y = event->raw_values[i];
     else
         abs_y = false;
 
@@ -1202,14 +1264,14 @@ protected:
     virtual void motion(RTriple e) {
         cur->add(e);
         const float dist = std::hypot(e->x - orig->x, e->y - orig->y);
-        if (!is_gesture && dist > 16) {
-            if (use_timeout && !final_timeout) {
+        if ((!is_gesture && dist > 16) || button == Button1) {
+            if ((use_timeout && !final_timeout) || button == Button1) {
                 return abort_stroke();
             }
             init_connection.disconnect();
             is_gesture = true;
         }
-        if (!drawing && dist > 4 && (!use_timeout || final_timeout)) {
+        if (!drawing && button != Button1 && dist > 4 && (!use_timeout || final_timeout)) {
             drawing = true;
             bool first = true;
             for (const auto &i: *cur) {
@@ -1230,10 +1292,11 @@ protected:
             trace->draw(p);
         }
         if (use_timeout && is_gesture) {
+            int *rad = button == Button1 ? &main_radius : &radius;
             connections.erase(remove_if(connections.begin(), connections.end(),
                                         bind(mem_fun(*this, &StrokeHandler::expired),
                                                    std::hypot(e->x - last->x, e->y - last->y))), connections.end());
-            connections.push_back(boost::make_shared<Connection>(this, button == Button1 ? main_radius : radius, final_timeout));
+            connections.push_back(boost::make_shared<Connection>(this, *rad, final_timeout));
         }
         last = e;
     }
@@ -1433,6 +1496,16 @@ XState::XState() : current_dev(nullptr), in_proximity(false), accepted(true), mo
     y_min = center_y - (boxSize / 2);
     y_max = center_y + (boxSize / 2);
     printf("Screen size: %d x %d\nCenter: %d x %d\nDims: x_min=%d x_max=%d y_min=%d y_max=%d\n", screenWidth, screenHeight, center_x, center_y, x_min, x_max, y_min, y_max);
+    constexpr int offset = 2;
+    screenTop = 32;
+    screenBot = screenHeight - offset;
+    screenLeft = offset;
+    screenRight = screenWidth - offset;
+    right = XFixesCreatePointerBarrier(dpy, DefaultRootWindow(dpy),screenRight, screenTop, screenRight,screenBot,0,0,nullptr);
+    left = XFixesCreatePointerBarrier(dpy, DefaultRootWindow(dpy),screenLeft, screenTop, screenLeft,screenBot,0,0,nullptr);
+    top = XFixesCreatePointerBarrier(dpy, DefaultRootWindow(dpy),screenLeft, screenTop, screenRight,screenTop,0,0,nullptr);
+    bottom = XFixesCreatePointerBarrier(dpy, DefaultRootWindow(dpy),screenLeft, screenBot, screenRight,screenBot,0,0,nullptr);
+    XFlush(dpy);
 }
 
 const char *XState::state_name[4] = { "None", "Outside", "Bound", "Center"};

@@ -666,7 +666,7 @@ void Prefs::on_remove() {
 	if (path.gobj() != 0) {
 		Gtk::TreeIter iter = *tm->get_iter(path);
 		Atomic a;
-		prefs.exceptions.write_ref(a).erase((Glib::ustring)((*iter)[cols.app]));
+		prefs.exceptions.write_ref(a).erase((*iter)[cols.app]);
 		tm->erase(iter);
 	}
 }

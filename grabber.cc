@@ -30,9 +30,7 @@ extern Source<bool> recording;
 Grabber *grabber = nullptr;
 
 static unsigned int ignore_mods[4] = {0, LockMask, Mod2Mask, LockMask | Mod2Mask};
-static unsigned char device_mask_data[2];
 static XIEventMask device_mask;
-static unsigned char raw_mask_data[3];
 static XIEventMask raw_mask;
 
 template<class X1, class X2>
@@ -203,6 +201,20 @@ static void activate(Window w, Time t) {
     XSendEvent(dpy, ROOT, False, SubstructureNotifyMask | SubstructureRedirectMask, reinterpret_cast<XEvent *>(&ev));
 }
 
+static XIEventMask initialize_xi_mask(const int mask_event[], const int mask_event_count) {
+    XIEventMask mask;
+    mask.deviceid = XIAllDevices;
+    mask.mask_len = XIMaskLen(XI_LASTEVENT);
+    mask.mask = new unsigned char[mask.mask_len];
+    memset(mask.mask, 0, mask.mask_len);
+
+    for (int i = 0; i < mask_event_count; ++i) {
+        XISetMask(mask.mask, mask_event[i]);
+    }
+
+    return mask;
+}
+
 std::string get_wm_class(Window w) {
     if (!w) {
         return "";
@@ -265,12 +277,12 @@ Grabber::~Grabber() {
 }
 
 bool Grabber::init_xi() {
-    /* XInput Extension available? */
-    int major = 2, minor = 0;
+    /* XInput Extension available? With PointerBarrier we need 2.3 */
+    int major = 2, minor = 3;
     if (!XQueryExtension(dpy, "XInputExtension", &opcode, &event, &error) ||
         XIQueryVersion(dpy, &major, &minor) == BadRequest ||
         major < 2) {
-        printf("Error: This version of easystroke needs an XInput 2.0-aware X server.\n"
+        printf("Error: This version of easystroke needs an XInput 2.3-aware X server.\n"
             "Please downgrade to easystroke 0.4.x or upgrade your X server to 1.7.\n");
         exit(EXIT_FAILURE);
     }
@@ -295,29 +307,14 @@ bool Grabber::init_xi() {
         exit(EXIT_FAILURE);
     }
 
-    device_mask.deviceid = XIAllDevices;
-    device_mask.mask = device_mask_data;
-    device_mask.mask_len = sizeof(device_mask_data);
-    memset(device_mask.mask, 0, device_mask.mask_len);
-    XISetMask(device_mask.mask, XI_ButtonPress);
-    XISetMask(device_mask.mask, XI_ButtonRelease);
-    XISetMask(device_mask.mask, XI_Motion);
+    constexpr int device_mask_events[] = {XI_ButtonPress, XI_ButtonRelease, XI_Motion};
+    device_mask = initialize_xi_mask(device_mask_events, 3);
 
-	raw_mask.deviceid = XIAllDevices;
-	raw_mask.mask = raw_mask_data;
-	raw_mask.mask_len = sizeof(raw_mask_data);
-	memset(raw_mask.mask, 0, raw_mask.mask_len);
-	XISetMask(raw_mask.mask, XI_ButtonPress);
-	XISetMask(raw_mask.mask, XI_ButtonRelease);
-	XISetMask(raw_mask.mask, XI_RawMotion);
+    constexpr int raw_mask_events[] = {XI_ButtonPress, XI_ButtonRelease, XI_RawMotion};
+    raw_mask = initialize_xi_mask(raw_mask_events, 3);
 
-    XIEventMask global_mask;
-    unsigned char data[2] = {0, 0};
-    global_mask.deviceid = XIAllDevices;
-    global_mask.mask = data;
-    global_mask.mask_len = sizeof(data);
-    XISetMask(global_mask.mask, XI_HierarchyChanged);
-    XISetMask(global_mask.mask, XI_Motion);
+    const int global_mask_events[] = {XI_HierarchyChanged, XI_Motion, XI_RawMotion, XI_BarrierHit, XI_BarrierLeave};
+    XIEventMask global_mask = initialize_xi_mask(global_mask_events, 5);
 
     XISelectEvents(dpy, ROOT, &global_mask, 1);
 
@@ -331,22 +328,25 @@ bool Grabber::hierarchy_changed(XIHierarchyEvent *event) {
         if (info->flags & XISlaveAdded) {
             int n;
             XIDeviceInfo *dev_info = XIQueryDevice(dpy, info->deviceid, &n);
-            if (!dev_info)
+            if (!dev_info) {
                 continue;
+            }
             new_device(dev_info);
             XIFreeDeviceInfo(dev_info);
             update_excluded();
             changed = true;
         } else if (info->flags & XISlaveRemoved) {
-            if (verbosity >= 1)
+            if (verbosity >= 1) {
                 printf("Device %d removed.\n", info->deviceid);
+            }
             xstate->remove_device(info->deviceid);
             xi_devs.erase(info->deviceid);
             changed = true;
         } else if (info->flags & (XISlaveAttached | XISlaveDetached)) {
             auto j = xi_devs.find(info->deviceid);
-            if (j != xi_devs.end())
+            if (j != xi_devs.end()) {
                 j->second->master = info->attachment;
+            }
         }
     }
     return changed;

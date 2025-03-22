@@ -76,10 +76,11 @@ public:
 	int x_min, x_max, y_min, y_max; // Define Synergy controlled region
 	bool controlled = false;
 	int cycling_threshold = 2; // Threshold for cycling behavior near the edges or center of the bounding box
-	int screenWidth, screenHeight;
+	int screenWidth, screenHeight, screenTop, screenBot, screenLeft, screenRight;
 	int transitionCount = 0, requiredTransitions = 2;         // Track the number of EDGE → CENTER transitions
 	int transitionOutCount = 0, requiredOutTransitions = 3;
 	MouseState prevState = NONE; // Initial state is outside the controlled area
+	PointerBarrier top, left, bottom, right;
 private:
 	Window ping_window;
 	Handler *handler;
