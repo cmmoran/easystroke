@@ -56,16 +56,20 @@ public:
 	void ping();
 	void bail_out();
 	void select();
-	void run_action(RAction act);
-	void queue(sigc::slot<void> f);
-	std::string select_window();
+        void run_action(RAction act);
+        void queue(sigc::slot<void> f);
+        std::string select_window();
 
-	static bool get_primary_monitor_center(int *center_x, int *center_y);
-	static void activate_window(Window w, Time t);
-	static Window get_window(Window w, Atom prop);
-	static Atom get_atom(Window w, Atom prop);
-	static bool has_atom(Window w, Atom prop, Atom value);
-	static void icccm_client_message(Window w, Atom a, Time t);
+        static bool get_primary_monitor_center(int *center_x, int *center_y);
+        void request_control_state(bool wants_controlled, const char *reason);
+        bool apply_control_state();
+        bool drain_pending_events();
+        bool drain_pending_events_batch(int max_events);
+        static void activate_window(Window w, Time t);
+        static Window get_window(Window w, Atom prop);
+        static Atom get_atom(Window w, Atom prop);
+        static bool has_atom(Window w, Atom prop, Atom value);
+        static void icccm_client_message(Window w, Atom a, Time t);
 
 	Grabber::XiDevice *current_dev;
 	bool in_proximity;
@@ -76,19 +80,31 @@ public:
 	int x_min, x_max, y_min, y_max; // Define Synergy controlled region
 	bool controlled = false;
 	int cycling_threshold = 2; // Threshold for cycling behavior near the edges or center of the bounding box
-	int screenWidth, screenHeight, screenTop, screenBot, screenLeft, screenRight;
-	int transitionCount = 0, requiredTransitions = 2;         // Track the number of EDGE → CENTER transitions
-	int transitionOutCount = 0, requiredOutTransitions = 3;
-	MouseState prevState = NONE; // Initial state is outside the controlled area
-	PointerBarrier top, left, bottom, right;
+        int screenWidth, screenHeight, screenTop, screenBot, screenLeft, screenRight;
+        int transitionCount = 0, requiredTransitions = 2;         // Track the number of EDGE → CENTER transitions
+        int transitionOutCount = 0, requiredOutTransitions = 3;
+        MouseState prevState = NONE; // Initial state is outside the controlled area
+        PointerBarrier top, left, bottom, right;
+        bool target_controlled = false;
+        sigc::connection control_timeout;
+        sigc::connection drain_idle;
+        std::string pending_control_reason;
+        int randr_event_base;
+        int randr_error_base;
 private:
-	Window ping_window;
-	Handler *handler;
+        Window ping_window;
+        Handler *handler;
 
-	static int xErrorHandler(Display *dpy2, XErrorEvent *e);
-	static int xIOErrorHandler(Display *dpy2);
-	int (*oldHandler)(Display *, XErrorEvent *);
-	int (*oldIOHandler)(Display *);
+        void init_randr_tracking();
+        void handle_randr_event(XEvent &ev);
+        void update_screen_metrics();
+        void destroy_pointer_barriers();
+        void rebuild_pointer_barriers();
+
+        static int xErrorHandler(Display *dpy2, XErrorEvent *e);
+        static int xIOErrorHandler(Display *dpy2);
+        int (*oldHandler)(Display *, XErrorEvent *);
+        int (*oldIOHandler)(Display *);
 	std::list<sigc::slot<void> > queued;
 	std::map<int, std::string> opcodes;
 };

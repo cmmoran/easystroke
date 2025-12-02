@@ -19,6 +19,7 @@
 #include "win.h" // Why?
 #include "prefs.h" // Why?
 #include <gtkmm.h>
+#include <X11/extensions/Xfixes.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
 #include <X11/extensions/XTest.h>
@@ -67,6 +68,12 @@ void XState::handle_enter_leave(XEvent &ev) {
 #define H (handler->top())
 
 void XState::handle_event(XEvent &ev) {
+    if (randr_event_base >= 0 &&
+        (ev.type == randr_event_base + RRScreenChangeNotify || ev.type == randr_event_base + RRNotify)) {
+        handle_randr_event(ev);
+        return;
+    }
+
     switch (ev.type) {
         case EnterNotify:
         case LeaveNotify:
@@ -436,12 +443,10 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
                     if (cycling_detected) {
                         if (!controlled && prevState == CENTER && currentState == CENTER) {
                             if (verbosity >= 3) printf("Mouse is now controlled by Synergy (Cycling detected)!\n");
-                            controlled = true;
-                            grabber->suspend();
+                            request_control_state(true, "cycling detection while centered");
                         } else if (prevState == OUTSIDE && currentState == OUTSIDE) {
                             if (verbosity >= 3) printf("Mouse is likely no longer controlled by Synergy\n");
-                            controlled = false;
-                            grabber->resume();
+                            request_control_state(false, "cycling detection outside");
                         }
                     }
                 }
@@ -466,7 +471,8 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
             }
         case XI_BarrierHit: {
                 const XIBarrierEvent *ev = reinterpret_cast<XIBarrierEvent *>(event);
-                XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
+                if (ev->barrier)
+                    XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
                 XFlush(dpy);
                 if (ev->barrier == top) {
                     if (verbosity >= 3) printf("Top barrier hit %s (%0.2f, %0.2f)\n", controlled ? "controlled" : "uncontrolled", ev->root_x, ev->root_y);
@@ -481,39 +487,35 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
             break;
         case XI_BarrierLeave: {
             const XIBarrierEvent *ev = reinterpret_cast<XIBarrierEvent *>(event);
-            XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
+            if (ev->barrier)
+                XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
             XFlush(dpy);
             if (ev->barrier == top) {
                 if (ev->root_y > screenTop) {
                     prevState = OUTSIDE;
-                    controlled = false;
-                    grabber->resume();
+                    request_control_state(false, "top leave below barrier");
                     if (verbosity >= 3) printf("Top barrier leave (resumed) uncontrolled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 } else if (ev->root_y <= screenTop) {
                     prevState = OUTSIDE;
-                    controlled = true;
-                    grabber->suspend();
+                    request_control_state(true, "top leave above barrier");
                     if (verbosity >= 3) printf("Top barrier leave (suspended) controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 }
             } else if (ev->barrier == bottom) {
                 if (ev->root_y >= screenBot) {
                     prevState = OUTSIDE;
-                    controlled = true;
-                    grabber->suspend();
+                    request_control_state(true, "bottom leave below screen");
                     if (verbosity >= 3) printf("Bottom barrier leave DOWN controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 }
             } else if (ev->barrier == left) {
                 if (ev->root_x <= screenLeft) {
                     prevState = OUTSIDE;
-                    controlled = true;
-                    grabber->suspend();
+                    request_control_state(true, "left barrier leave");
                     if (verbosity >= 3) printf("Left barrier leave LEFT controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 }
             } else if (ev->barrier == right) {
                 if (ev->root_x >= screenRight) {
                     prevState = OUTSIDE;
-                    controlled = true;
-                    grabber->suspend();
+                    request_control_state(true, "right barrier leave");
                     if (verbosity >= 3) printf("Right barrier leave RIGHT controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 }
             }
@@ -555,18 +557,9 @@ void XState::handle_raw_motion(XIRawEvent *event) {
 #undef H
 
 bool XState::handle(Glib::IOCondition) {
-    while (XPending(dpy)) {
-        try {
-            XEvent ev;
-            XNextEvent(dpy, &ev);
-            if (!grabber->handle(ev)) {
-                handle_event(ev);
-            }
-        } catch (GrabFailedException &e) {
-            printf(_("Error: %s\n"), e.what());
-            bail_out();
-        }
-    }
+    bool more = drain_pending_events_batch(64);
+    if (more && !drain_idle.connected())
+        drain_idle = Glib::signal_idle().connect(sigc::mem_fun(*this, &XState::drain_pending_events));
     return true;
 }
 
@@ -1467,7 +1460,111 @@ std::string XState::select_window() {
     return grabber->current_class->get();
 }
 
-XState::XState() : current_dev(nullptr), in_proximity(false), accepted(true), modifiers(0) {
+void XState::init_randr_tracking() {
+    Window root = DefaultRootWindow(dpy);
+    if (!XRRQueryExtension(dpy, &randr_event_base, &randr_error_base)) {
+        if (verbosity >= 2)
+            printf("RandR extension unavailable; pointer barriers will not auto-refresh\n");
+        randr_event_base = -1;
+        return;
+    }
+
+    XRRSelectInput(dpy, root, RROutputChangeNotifyMask | RRCrtcChangeNotifyMask | RRScreenChangeNotifyMask);
+}
+
+void XState::update_screen_metrics() {
+    screenWidth = DisplayWidth(dpy, 0);
+    screenHeight = DisplayHeight(dpy, 0);
+
+    int center_x = 0, center_y = 0;
+    if (!get_primary_monitor_center(&center_x, &center_y)) {
+        if (verbosity >= 2)
+            printf("Falling back to derived center because primary monitor lookup failed\n");
+        center_x = 2 * (screenWidth / 3) + (screenWidth / 3) / 2;
+        center_y = screenHeight / 2;
+    }
+
+    int boxSize = 250; // Synergy-controlled bounding box size
+
+    x_min = center_x - (boxSize / 2);
+    x_max = center_x + (boxSize / 2);
+    y_min = center_y - (boxSize / 2);
+    y_max = center_y + (boxSize / 2);
+    if (verbosity >= 3)
+        printf("Screen size: %d x %d\nCenter: %d x %d\nDims: x_min=%d x_max=%d y_min=%d y_max=%d\n", screenWidth, screenHeight, center_x, center_y, x_min, x_max, y_min, y_max);
+    constexpr int offset = 2;
+    screenTop = 32;
+    screenBot = screenHeight - offset;
+    screenLeft = offset;
+    screenRight = screenWidth - offset;
+
+    // Reset state tracking so new geometry doesn't keep stale assumptions.
+    prevState = NONE;
+    transitionCount = 0;
+    transitionOutCount = 0;
+}
+
+void XState::destroy_pointer_barriers() {
+    if (right)
+        XFixesDestroyPointerBarrier(dpy, right);
+    if (left)
+        XFixesDestroyPointerBarrier(dpy, left);
+    if (top)
+        XFixesDestroyPointerBarrier(dpy, top);
+    if (bottom)
+        XFixesDestroyPointerBarrier(dpy, bottom);
+
+    right = left = top = bottom = 0;
+}
+
+void XState::rebuild_pointer_barriers() {
+    destroy_pointer_barriers();
+
+    Window root = DefaultRootWindow(dpy);
+    right = XFixesCreatePointerBarrier(dpy, root, screenRight, screenTop, screenRight, screenBot, 0, 0, nullptr);
+    left = XFixesCreatePointerBarrier(dpy, root, screenLeft, screenTop, screenLeft, screenBot, 0, 0, nullptr);
+    top = XFixesCreatePointerBarrier(dpy, root, screenLeft, screenTop, screenRight, screenTop, 0, 0, nullptr);
+    bottom = XFixesCreatePointerBarrier(dpy, root, screenLeft, screenBot, screenRight, screenBot, 0, 0, nullptr);
+
+    if (!right || !left || !top || !bottom) {
+        printf("One or more pointer barriers failed to create; Synergy detection may be degraded (l=%lu r=%lu t=%lu b=%lu)\n",
+               static_cast<unsigned long>(left), static_cast<unsigned long>(right), static_cast<unsigned long>(top),
+               static_cast<unsigned long>(bottom));
+    }
+
+    XFlush(dpy);
+}
+
+void XState::handle_randr_event(XEvent &ev) {
+    if (randr_event_base < 0)
+        return;
+
+    const int subtype = ev.type - randr_event_base;
+    if (subtype == RRScreenChangeNotify) {
+        XRRUpdateConfiguration(&ev);
+        update_screen_metrics();
+        rebuild_pointer_barriers();
+        return;
+    }
+
+    if (subtype == RRNotify) {
+        auto *rr_ev = reinterpret_cast<XRRNotifyEvent *>(&ev);
+        switch (rr_ev->subtype) {
+            case RRNotify_OutputChange:
+            case RRNotify_CrtcChange:
+                update_screen_metrics();
+                rebuild_pointer_barriers();
+                break;
+        }
+    }
+}
+
+XState::XState() : current_dev(nullptr),
+                   in_proximity(false),
+                   accepted(true),
+                   modifiers(0),
+                   randr_event_base(-1),
+                   randr_error_base(0) {
     int n, opcode, event, error;
     char **ext = XListExtensions(dpy, &n);
     for (int i = 0; i < n; i++)
@@ -1479,33 +1576,71 @@ XState::XState() : current_dev(nullptr), in_proximity(false), accepted(true), mo
     ping_window = XCreateSimpleWindow(dpy, ROOT, 0, 0, 1, 1, 0, 0, 0);
     handler = new IdleHandler(this);
     handler->init();
-    screenWidth = DisplayWidth(dpy, 0);
-    screenHeight = DisplayHeight(dpy, 0);
-    // int centerX = 2 * (screenWidth / 3) + (screenWidth / 3) / 2;
-    // int centerY = screenHeight / 2;
-    int center_x = 0, center_y = 0;
-    if (!get_primary_monitor_center(&center_x, &center_y)) {
-        printf("Failed to get primary monitor center\n");
-        center_x = 2 * (screenWidth / 3) + (screenWidth / 3) / 2;
-        center_y = screenHeight / 2;
-    }
-    int boxSize = 250; // Synergy-controlled bounding box size
+    top = bottom = left = right = 0;
+    init_randr_tracking();
+    update_screen_metrics();
+    rebuild_pointer_barriers();
+}
 
-    x_min = center_x - (boxSize / 2);
-    x_max = center_x + (boxSize / 2);
-    y_min = center_y - (boxSize / 2);
-    y_max = center_y + (boxSize / 2);
-    printf("Screen size: %d x %d\nCenter: %d x %d\nDims: x_min=%d x_max=%d y_min=%d y_max=%d\n", screenWidth, screenHeight, center_x, center_y, x_min, x_max, y_min, y_max);
-    constexpr int offset = 2;
-    screenTop = 32;
-    screenBot = screenHeight - offset;
-    screenLeft = offset;
-    screenRight = screenWidth - offset;
-    right = XFixesCreatePointerBarrier(dpy, DefaultRootWindow(dpy),screenRight, screenTop, screenRight,screenBot,0,0,nullptr);
-    left = XFixesCreatePointerBarrier(dpy, DefaultRootWindow(dpy),screenLeft, screenTop, screenLeft,screenBot,0,0,nullptr);
-    top = XFixesCreatePointerBarrier(dpy, DefaultRootWindow(dpy),screenLeft, screenTop, screenRight,screenTop,0,0,nullptr);
-    bottom = XFixesCreatePointerBarrier(dpy, DefaultRootWindow(dpy),screenLeft, screenBot, screenRight,screenBot,0,0,nullptr);
-    XFlush(dpy);
+void XState::request_control_state(bool wants_controlled, const char *reason) {
+    target_controlled = wants_controlled;
+    if (reason)
+        pending_control_reason = reason;
+
+    if (control_timeout.connected())
+        return;
+
+    // Debounce grab transitions away from the XI handler.
+    control_timeout = Glib::signal_timeout().connect(sigc::mem_fun(*this, &XState::apply_control_state), 75);
+}
+
+bool XState::apply_control_state() {
+    if (control_timeout.connected())
+        control_timeout.disconnect();
+
+    if (controlled == target_controlled)
+        return false;
+
+    controlled = target_controlled;
+    if (verbosity >= 3) {
+        printf("Applying %s control (%s)\n", controlled ? "Synergy" : "local",
+               pending_control_reason.empty() ? "no reason provided" : pending_control_reason.c_str());
+    }
+
+    if (controlled)
+        grabber->suspend();
+    else
+        grabber->resume();
+    return false;
+}
+
+bool XState::drain_pending_events_batch(int max_events) {
+    int processed = 0;
+    while (processed < max_events && XPending(dpy)) {
+        try {
+            XEvent ev;
+            XNextEvent(dpy, &ev);
+            if (!grabber->handle(ev)) {
+                handle_event(ev);
+            }
+        } catch (GrabFailedException &e) {
+            printf(_("Error: %s\n"), e.what());
+            bail_out();
+        }
+        processed++;
+    }
+
+    if (processed == max_events && XPending(dpy) && verbosity >= 2)
+        printf("X queue congested; scheduling idle drain after processing %d events\n", processed);
+
+    return XPending(dpy);
+}
+
+bool XState::drain_pending_events() {
+    bool more = drain_pending_events_batch(64);
+    if (!more && drain_idle.connected())
+        drain_idle.disconnect();
+    return more;
 }
 
 const char *XState::state_name[4] = { "None", "Outside", "Bound", "Center"};
