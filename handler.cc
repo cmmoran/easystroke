@@ -1520,7 +1520,7 @@ void XState::destroy_pointer_barriers() {
 void XState::rebuild_pointer_barriers() {
     destroy_pointer_barriers();
 
-    Window root = DefaultRootWindow(dpy);
+    const Window root = DefaultRootWindow(dpy);
     right = XFixesCreatePointerBarrier(dpy, root, screenRight, screenTop, screenRight, screenBot, 0, 0, nullptr);
     left = XFixesCreatePointerBarrier(dpy, root, screenLeft, screenTop, screenLeft, screenBot, 0, 0, nullptr);
     top = XFixesCreatePointerBarrier(dpy, root, screenLeft, screenTop, screenRight, screenTop, 0, 0, nullptr);
