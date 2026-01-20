@@ -1,23 +1,8 @@
 *
-
-# But not these files...
 !/.gitignore
-
 !*.cc
 !*.h
-!*.vala
-!changelog
-!easystroke.svg
-!easystroke.appdata.xml
-!easystroke.desktop.in
-!gui.glade
 !README.md
-!LICENSE
-!Makefile
-!debug.mk
-
-!po/*.po
 !docs/*.md
-
-# ...even if they are in subdirectories
+!LICENSE
 !*/
