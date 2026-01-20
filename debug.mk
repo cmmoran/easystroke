@@ -1,3 +1,3 @@
 DFLAGS   = -ggdb #-pg
 OFLAGS   = 
-CXX      = ccache g++
+CXX      = g++

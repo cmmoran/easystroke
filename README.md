@@ -63,7 +63,11 @@ You can fetch the [latest development tree](http://github.com/thjaeger/easystrok
 
 [Tips & Tricks](TipsAndTricks)
 
-[Build Instructions](BuildInstructions)
+[Build Instructions](docs/build-instructions.md)
+
+## IDE Setup (CLion)
+
+For detailed instructions on how to set up, build, and debug this project in CLion, please refer to [IDE_SETUP.md](IDE_SETUP.md).
 
 Easystroke is distributed under the [ISC License](http://github.com/thjaeger/easystroke/tree/master%2FLICENSE?raw=true).
 

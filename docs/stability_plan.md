@@ -21,12 +21,12 @@ This plan lists **itemized, priority-ordered improvements** that preserve curren
    - **Target**: `handler.cc: rebuild_pointer_barriers`, `handle_xi2_event`.
    - **Change type**: Early exits or checks for nonzero barrier IDs before use.
 
-4) **Guard XI2 cookie data size before reinterpret casts**
+4) **Guard XI2 cookie data size before reinterpret casts** (completed 2026-01-20)
    - **Why**: `handle_xi2_event` reinterprets `cookie->data` as XI2 structs without size checks; truncated or malformed events can crash.
    - **Target**: `handler.cc: XState::handle_xi2_event`.
    - **Change type**: Defensive size validation or safe fallback before casting.
 
-5) **Null-check `get_xi_dev` in experimental release path**
+5) **Null-check `get_xi_dev` in experimental release path** (completed 2026-01-20)
    - **Why**: The experimental path dereferences `grabber->get_xi_dev(event->deviceid)->name` without guarding against device removal.
    - **Target**: `handler.cc: XState::handle_xi2_event` (XI_ButtonRelease).
    - **Change type**: Guard `get_xi_dev` result; skip remap if missing.
@@ -50,12 +50,12 @@ This plan lists **itemized, priority-ordered improvements** that preserve curren
    - **Target**: `handler.cc: handle_xi2_event`, `handle_raw_motion`.
    - **Change type**: Validate event type and size before cast; short-circuit on mismatch.
 
-4) **Avoid pre-casting XI2 cookie data to `XIDeviceEvent`**
+4) **Avoid pre-casting XI2 cookie data to `XIDeviceEvent`** (completed 2026-01-20)
    - **Why**: `handle_xi2_event` reads `event->evtype` after casting cookie data to `XIDeviceEvent`, which can be invalid for non-device events.
    - **Target**: `handler.cc: XState::handle_xi2_event`.
    - **Change type**: Use cookie `evtype` to select struct type before casting.
 
-5) **Harden RawMotion valuator assumptions**
+5) **Harden RawMotion valuator assumptions** (completed 2026-01-20)
    - **Why**: RawMotion handling assumes valuators 0/1 map to X/Y; devices with different layouts can misbehave or crash.
    - **Target**: `handler.cc: XState::handle_raw_motion`.
    - **Change type**: Validate valuator mask/indices before indexing raw values.

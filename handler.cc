@@ -26,6 +26,8 @@
 #include <X11/XKBlib.h>
 #include <X11/Xproto.h>
 #include <cmath>  // std::abs(float)
+#include <type_traits>
+#include <utility>
 using std::abs;
 
 XState *xstate = nullptr;
@@ -37,6 +39,28 @@ extern boost::shared_ptr<Trace> trace;
 
 
 boost::shared_ptr<sigc::slot<void, RStroke> > stroke_action;
+
+template <typename T>
+struct has_data_len_member {
+private:
+    template <typename U>
+    static auto test(int) -> decltype(std::declval<U>().data_len, std::true_type());
+    template <typename>
+    static std::false_type test(...);
+
+public:
+    static constexpr bool value = decltype(test<T>(0))::value;
+};
+
+template <typename T>
+static inline typename std::enable_if<has_data_len_member<T>::value, int>::type get_cookie_data_len(const T *cookie) {
+    return cookie->data_len;
+}
+
+template <typename T>
+static inline typename std::enable_if<!has_data_len_member<T>::value, int>::type get_cookie_data_len(const T *) {
+    return -1;
+}
 
 static XAtom EASYSTROKE_PING("EASYSTROKE_PING");
 
@@ -371,17 +395,36 @@ MouseState XState::get_mouse_state(int x, int y) {
 void XState::handle_xi2_event(XGenericEventCookie *cookie) {
     if (!cookie || !cookie->data)
         return;
+    auto require_cookie_size = [&](size_t size, const char *name) -> bool {
+        const int data_len = get_cookie_data_len(cookie);
+        if (data_len >= 0) {
+            if (data_len < static_cast<int>(size)) {
+                if (verbosity >= 1) {
+                    printf("Ignoring XI2 %s event: size %d < %zu\n", name, data_len, size);
+                }
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!require_cookie_size(sizeof(XIEvent), "header"))
+        return;
     const int evtype = cookie->evtype;
-    XIDeviceEvent *event = static_cast<XIDeviceEvent *>(cookie->data);
-    if (event->evtype != evtype) {
+    XIEvent *header = static_cast<XIEvent *>(cookie->data);
+    if (header->evtype != evtype) {
         if (verbosity >= 1) {
-            printf("Ignoring XI2 event: cookie evtype %d != event evtype %d\n", evtype, event->evtype);
+            printf("Ignoring XI2 event: cookie evtype %d != event evtype %d\n", evtype, header->evtype);
         }
         return;
     }
 
     switch (evtype) {
         case XI_ButtonPress:
+            if (!require_cookie_size(sizeof(XIDeviceEvent), "ButtonPress"))
+                break;
+            {
+            XIDeviceEvent *event = static_cast<XIDeviceEvent *>(cookie->data);
             if (verbosity >= 3)
                 report_xi2_event(event, "Press");
             if (!xinput_pressed.empty()) {
@@ -413,8 +456,13 @@ void XState::handle_xi2_event(XGenericEventCookie *cookie) {
             xinput_pressed.insert(event->detail);
             in_proximity = get_axis(event->valuators, current_dev->proximity_axis);
             H->press(event->detail, create_triple(event->root_x, event->root_y, event->time));
+            }
             break;
         case XI_ButtonRelease:
+            if (!require_cookie_size(sizeof(XIDeviceEvent), "ButtonRelease"))
+                break;
+            {
+            XIDeviceEvent *event = static_cast<XIDeviceEvent *>(cookie->data);
             if (verbosity >= 3) {
                 report_xi2_event(event, "Release");
             }
@@ -428,9 +476,17 @@ void XState::handle_xi2_event(XGenericEventCookie *cookie) {
 
             if (experimental) {
                 //if device is disabled, but extra buttons followed, treat last extra button as the default button
+                const auto xi_dev = grabber->get_xi_dev(event->deviceid);
+                if (!xi_dev) {
+                    if (verbosity >= 2) {
+                        printf("Skipping experimental remap: device %d missing\n", event->deviceid);
+                    }
+                    H->release(event->detail, create_triple(event->root_x, event->root_y, event->time));
+                    break;
+                }
                 for (auto i = prefs.excluded_devices.ref().begin(); i != prefs.excluded_devices.ref().end(); ++i) {
                     //check if the grabbed device name is in disabled device list
-                    if (!i->compare(grabber->get_xi_dev(event->deviceid)->name)) {
+                    if (!i->compare(xi_dev->name)) {
                         //check if the button is same as last extra button
                         if (!prefs.extra_buttons.ref().empty() && static_cast<guint>(event->detail) == prefs.
                             extra_buttons.ref().rbegin()->button) {
@@ -442,8 +498,13 @@ void XState::handle_xi2_event(XGenericEventCookie *cookie) {
             }
 
             H->release(event->detail, create_triple(event->root_x, event->root_y, event->time));
+            }
             break;
         case XI_Motion:
+            if (!require_cookie_size(sizeof(XIDeviceEvent), "Motion"))
+                break;
+            {
+            XIDeviceEvent *event = static_cast<XIDeviceEvent *>(cookie->data);
             {
                 MouseState currentState = get_mouse_state(event->root_x, event->root_y);
                 bool cycling_detected = is_cycling_detected(currentState);
@@ -469,8 +530,11 @@ void XState::handle_xi2_event(XGenericEventCookie *cookie) {
                 break;
             }
             H->motion(create_triple(event->root_x, event->root_y, event->time));
+            }
             break;
         case XI_RawMotion:
+            if (!require_cookie_size(sizeof(XIRawEvent), "RawMotion"))
+                break;
             {
                 XIRawEvent *raw = static_cast<XIRawEvent *>(cookie->data);
                 if (raw->evtype != XI_RawMotion) {
@@ -486,12 +550,16 @@ void XState::handle_xi2_event(XGenericEventCookie *cookie) {
             }
             break;
         case XI_HierarchyChanged:
-            if (grabber->hierarchy_changed(reinterpret_cast<XIHierarchyEvent *>(event))) {
+            if (!require_cookie_size(sizeof(XIHierarchyEvent), "HierarchyChanged"))
+                break;
+            if (grabber->hierarchy_changed(static_cast<XIHierarchyEvent *>(cookie->data))) {
                 win->prefs_tab->update_device_list();
             }
             break;
         case XI_BarrierHit: {
-                const XIBarrierEvent *ev = reinterpret_cast<XIBarrierEvent *>(event);
+                if (!require_cookie_size(sizeof(XIBarrierEvent), "BarrierHit"))
+                    break;
+                const XIBarrierEvent *ev = static_cast<XIBarrierEvent *>(cookie->data);
                 if (ev->barrier)
                     XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
                 XFlush(dpy);
@@ -516,7 +584,9 @@ void XState::handle_xi2_event(XGenericEventCookie *cookie) {
             }
             break;
         case XI_BarrierLeave: {
-            const XIBarrierEvent *ev = reinterpret_cast<XIBarrierEvent *>(event);
+            if (!require_cookie_size(sizeof(XIBarrierEvent), "BarrierLeave"))
+                break;
+            const XIBarrierEvent *ev = static_cast<XIBarrierEvent *>(cookie->data);
             if (ev->barrier)
                 XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
             XFlush(dpy);
@@ -572,15 +642,34 @@ void XState::handle_raw_motion(XIRawEvent *event) {
     double x = 0.0, y = 0.0;
     bool abs_x = current_dev->absolute;
     bool abs_y = current_dev->absolute;
-    int i = 0;
+    const int max_bits = event->valuators.mask_len * 8;
+    auto axis_index = [&](int axis) -> int {
+        if (axis < 0 || axis >= max_bits)
+            return -1;
+        if (!XIMaskIsSet(event->valuators.mask, axis))
+            return -1;
+        int idx = 0;
+        for (int bit = 0; bit < axis; ++bit) {
+            if (XIMaskIsSet(event->valuators.mask, bit))
+                idx++;
+        }
+        return idx;
+    };
+    if (!event->raw_values) {
+        if (verbosity >= 2)
+            printf("Raw motion (XI2): missing raw_values\n");
+        return;
+    }
 
-    if (XIMaskIsSet(event->valuators.mask, 0))
-        x = event->raw_values[i++];
+    const int x_index = axis_index(0);
+    if (x_index >= 0)
+        x = event->raw_values[x_index];
     else
         abs_x = false;
 
-    if (XIMaskIsSet(event->valuators.mask, 1))
-        y = event->raw_values[i];
+    const int y_index = axis_index(1);
+    if (y_index >= 0)
+        y = event->raw_values[y_index];
     else
         abs_y = false;
 
