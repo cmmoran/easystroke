@@ -110,7 +110,7 @@ void XState::handle_event(XEvent &ev) {
             return;
         case GenericEvent:
             if (ev.xcookie.extension == grabber->opcode && XGetEventData(dpy, &ev.xcookie)) {
-                handle_xi2_event(static_cast<XIDeviceEvent *>(ev.xcookie.data));
+                handle_xi2_event(&ev.xcookie);
                 XFreeEventData(dpy, &ev.xcookie);
             }
     }
@@ -368,8 +368,19 @@ MouseState XState::get_mouse_state(int x, int y) {
     return prevState;
 }
 
-void XState::handle_xi2_event(XIDeviceEvent *event) {
-    switch (event->evtype) {
+void XState::handle_xi2_event(XGenericEventCookie *cookie) {
+    if (!cookie || !cookie->data)
+        return;
+    const int evtype = cookie->evtype;
+    XIDeviceEvent *event = static_cast<XIDeviceEvent *>(cookie->data);
+    if (event->evtype != evtype) {
+        if (verbosity >= 1) {
+            printf("Ignoring XI2 event: cookie evtype %d != event evtype %d\n", evtype, event->evtype);
+        }
+        return;
+    }
+
+    switch (evtype) {
         case XI_ButtonPress:
             if (verbosity >= 3)
                 report_xi2_event(event, "Press");
@@ -460,10 +471,19 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
             H->motion(create_triple(event->root_x, event->root_y, event->time));
             break;
         case XI_RawMotion:
-            if (current_dev && current_dev->dev == event->deviceid) {
-                in_proximity = get_axis(reinterpret_cast<XIRawEvent *>(event)->valuators, current_dev->proximity_axis);
+            {
+                XIRawEvent *raw = static_cast<XIRawEvent *>(cookie->data);
+                if (raw->evtype != XI_RawMotion) {
+                    if (verbosity >= 1) {
+                        printf("Ignoring XI2 RawMotion: evtype %d\n", raw->evtype);
+                    }
+                    break;
+                }
+                if (current_dev && current_dev->dev == raw->deviceid) {
+                    in_proximity = get_axis(raw->valuators, current_dev->proximity_axis);
+                }
+                handle_raw_motion(raw);
             }
-            handle_raw_motion(reinterpret_cast<XIRawEvent *>(event));
             break;
         case XI_HierarchyChanged:
             if (grabber->hierarchy_changed(reinterpret_cast<XIHierarchyEvent *>(event))) {
@@ -640,14 +660,14 @@ public:
     }
 
     virtual void press(guint b, RTriple e) {
-        if (xstate->current_dev->master) {
+        if (xstate->current_dev && xstate->current_dev->master) {
             XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
             XTestFakeButtonEvent(dpy, b, true, CurrentTime);
         }
     }
 
     virtual void motion(RTriple e) {
-        if (xstate->current_dev->master) {
+        if (xstate->current_dev && xstate->current_dev->master) {
             XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
         }
         if (proximity && !xstate->in_proximity)
@@ -655,7 +675,7 @@ public:
     }
 
     virtual void release(guint b, RTriple e) {
-        if (xstate->current_dev->master) {
+        if (xstate->current_dev && xstate->current_dev->master) {
             XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
             XTestFakeButtonEvent(dpy, b, false, CurrentTime);
         }
@@ -680,7 +700,7 @@ public:
     }
 
     virtual void press(guint b, RTriple e) {
-        if (xstate->current_dev->master) {
+        if (xstate->current_dev && xstate->current_dev->master) {
             if (!real_button)
                 real_button = b;
             if (real_button == b)
@@ -691,14 +711,14 @@ public:
     }
 
     virtual void motion(RTriple e) {
-        if (xstate->current_dev->master)
+        if (xstate->current_dev && xstate->current_dev->master)
             XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
         if (proximity && !xstate->in_proximity)
             parent->replace_child(nullptr);
     }
 
     virtual void release(guint b, RTriple e) {
-        if (xstate->current_dev->master) {
+        if (xstate->current_dev && xstate->current_dev->master) {
             if (real_button == b)
                 b = button;
             XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
@@ -1058,7 +1078,7 @@ public:
             act->run();
             return;
         }
-        if (xstate->current_dev->master) {
+        if (xstate->current_dev && xstate->current_dev->master) {
             XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
         }
         click_time = 0;
@@ -1072,7 +1092,7 @@ public:
         show_ranking(bb, e);
         if (!as.count(bb)) {
             sticky_mods.reset();
-            if (xstate->current_dev->master) {
+            if (xstate->current_dev && xstate->current_dev->master) {
                 if (b > 0) {
                     XTestFakeButtonEvent(dpy, b, true, CurrentTime);
                 }
@@ -1118,7 +1138,7 @@ public:
         if (replay_button && std::hypot(replay_orig->x - e->x, replay_orig->y - e->y) > 16) {
             replay_button = 0;
         }
-        if (xstate->current_dev->master) {
+        if (xstate->current_dev && xstate->current_dev->master) {
             XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, CurrentTime);
         }
     }
@@ -1129,7 +1149,7 @@ public:
             mods.clear();
             return parent->replace_child(nullptr);
         }
-        if (xstate->current_dev->master) {
+        if (xstate->current_dev && xstate->current_dev->master) {
             XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, CurrentTime);
         }
         if (remap_to) {
@@ -1138,7 +1158,7 @@ public:
         const guint bb = (b == button1) ? button2 : b;
         if (!as.count(bb)) {
             sticky_mods.reset();
-            if (xstate->current_dev->master) {
+            if (xstate->current_dev && xstate->current_dev->master) {
                 XTestFakeButtonEvent(dpy, b, false, CurrentTime);
             }
         }
@@ -1391,11 +1411,15 @@ public:
                                         isRockerLeft(false),
                                         isRockerRight(false) {
         const std::map<std::string, TimeoutType> &dt = prefs.device_timeout.ref();
-        const auto j = dt.find(xstate->current_dev->name);
-        if (j != dt.end())
-            get_timeouts(j->second, &init_timeout, &final_timeout);
-        else
+        if (xstate->current_dev) {
+            const auto j = dt.find(xstate->current_dev->name);
+            if (j != dt.end())
+                get_timeouts(j->second, &init_timeout, &final_timeout);
+            else
+                get_timeouts(prefs.timeout_profile.get(), &init_timeout, &final_timeout);
+        } else {
             get_timeouts(prefs.timeout_profile.get(), &init_timeout, &final_timeout);
+        }
         use_timeout = init_timeout;
     }
 
@@ -1423,7 +1447,12 @@ public:
         init_connection = Glib::signal_timeout().connect(mem_fun(*this, &StrokeHandler::timeout), init_timeout);
     }
 
-    ~StrokeHandler() { trace->end(); }
+    ~StrokeHandler() {
+        if (init_connection.connected())
+            init_connection.disconnect();
+        connections.clear();
+        trace->end();
+    }
     virtual std::string name() { return "Stroke"; }
     virtual Grabber::State grab_mode() { return Grabber::NONE; }
 };

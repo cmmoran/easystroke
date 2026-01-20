@@ -21,28 +21,48 @@ This plan lists **itemized, priority-ordered improvements** that preserve curren
    - **Target**: `handler.cc: rebuild_pointer_barriers`, `handle_xi2_event`.
    - **Change type**: Early exits or checks for nonzero barrier IDs before use.
 
+4) **Guard XI2 cookie data size before reinterpret casts**
+   - **Why**: `handle_xi2_event` reinterprets `cookie->data` as XI2 structs without size checks; truncated or malformed events can crash.
+   - **Target**: `handler.cc: XState::handle_xi2_event`.
+   - **Change type**: Defensive size validation or safe fallback before casting.
+
+5) **Null-check `get_xi_dev` in experimental release path**
+   - **Why**: The experimental path dereferences `grabber->get_xi_dev(event->deviceid)->name` without guarding against device removal.
+   - **Target**: `handler.cc: XState::handle_xi2_event` (XI_ButtonRelease).
+   - **Change type**: Guard `get_xi_dev` result; skip remap if missing.
+
 ---
 
 ## Priority 1 (High-risk stability improvements)
 
-1) **Make `current_dev` lifetime-safe across device removal**
+1) **Make `current_dev` lifetime-safe across device removal** (completed 2026-01-20)
    - **Why**: `current_dev` is a raw pointer into `xi_devs` entries; device removal can invalidate it.
    - **Target**: `handler.cc: XState::current_dev` usages, `grabber.cc: hierarchy_changed`.
    - **Change type**: Defensive nulling and ID consistency checks before dereference.
 
-2) **Ensure all timeout connections are cleanly disconnected**
+2) **Ensure all timeout connections are cleanly disconnected** (completed 2026-01-20)
    - **Why**: `StrokeHandler::init_connection` depends on `sigc::connection` destructor semantics; a late timeout can fire after destruction.
    - **Target**: `handler.cc: StrokeHandler`.
    - **Change type**: Explicit disconnect in destructor or RAII helper to enforce disconnection.
 
-3) **Constrain XI2 event reinterpretation to correct event types**
+3) **Constrain XI2 event reinterpretation to correct event types** (completed 2026-01-20)
    - **Why**: `XIDeviceEvent*` is reinterpreted as `XIRawEvent*` based on evtype; if mismatched, behavior is undefined.
    - **Target**: `handler.cc: handle_xi2_event`, `handle_raw_motion`.
    - **Change type**: Validate event type and size before cast; short-circuit on mismatch.
 
+4) **Avoid pre-casting XI2 cookie data to `XIDeviceEvent`**
+   - **Why**: `handle_xi2_event` reads `event->evtype` after casting cookie data to `XIDeviceEvent`, which can be invalid for non-device events.
+   - **Target**: `handler.cc: XState::handle_xi2_event`.
+   - **Change type**: Use cookie `evtype` to select struct type before casting.
+
+5) **Harden RawMotion valuator assumptions**
+   - **Why**: RawMotion handling assumes valuators 0/1 map to X/Y; devices with different layouts can misbehave or crash.
+   - **Target**: `handler.cc: XState::handle_raw_motion`.
+   - **Change type**: Validate valuator mask/indices before indexing raw values.
+
 ---
 
-## Priority 2 (Behavior-preserving robustness & diagnostics)
+## Priority 2 (Behavior-preserving robustness and diagnostics)
 
 1) **Add targeted invariant checks in handler transitions**
    - **Why**: `Handler::replace_child` controls grab mode transitions and queued callbacks; errors here can lead to stuck grabs or reentrancy issues.
@@ -63,6 +83,11 @@ This plan lists **itemized, priority-ordered improvements** that preserve curren
    - **Why**: Rocker gestures are hard-wired to action names `"Back"`/`"Forward"`, which is fragile and localization-dependent.
    - **Target**: `actiondb.cc: ActionListDiff::handle_advanced`.
    - **Change type**: Add a clear, behavior-preserving mapping layer or normalization step (still matching existing names by default).
+
+5) **Skip pointer barrier rebuild with invalid screen geometry**
+   - **Why**: If screen metrics are zero/invalid during RandR changes, barriers are rebuilt with bad coordinates.
+   - **Target**: `handler.cc: XState::update_screen_metrics`, `rebuild_pointer_barriers`.
+   - **Change type**: Guard rebuild on valid dimensions; log and skip on invalid geometry.
 
 ---
 

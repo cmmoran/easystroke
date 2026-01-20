@@ -38,7 +38,7 @@ public:
 	bool handle(Glib::IOCondition);
 	void handle_enter_leave(XEvent &ev);
 	void handle_event(XEvent &ev);
-	void handle_xi2_event(XIDeviceEvent *event);
+	void handle_xi2_event(XGenericEventCookie *cookie);
 	void handle_raw_motion(XIRawEvent *event);
 	void report_xi2_event(XIDeviceEvent *event, const char *type);
 
