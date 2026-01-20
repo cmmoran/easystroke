@@ -6,17 +6,17 @@ This plan lists **itemized, priority-ordered improvements** that preserve curren
 
 ## Priority 0 (Immediate crash-risk eliminations)
 
-1) **Fix XI_HierarchyChanged fallthrough**
+1) **Fix XI_HierarchyChanged fallthrough** (completed 2026-01-20)
    - **Why**: `XState::handle_xi2_event` falls through from `XI_HierarchyChanged` into `XI_BarrierHit`, reinterpreting the event as `XIBarrierEvent` (direct crash vector).
    - **Target**: `handler.cc: XState::handle_xi2_event`.
    - **Change type**: Single-line control flow guard (add `break`).
 
-2) **Guard primary output fallback when no outputs exist**
+2) **Guard primary output fallback when no outputs exist** (completed 2026-01-20)
    - **Why**: `get_primary_monitor_center` uses `screenRes->outputs[0]` without checking `noutput`, which can be out of bounds.
    - **Target**: `handler.cc: XState::get_primary_monitor_center`.
    - **Change type**: Defensive bounds check with fallback or early return.
 
-3) **Harden pointer barrier event handling when barriers are missing**
+3) **Harden pointer barrier event handling when barriers are missing** (completed 2026-01-20)
    - **Why**: `rebuild_pointer_barriers` can partially fail; barrier hit/leave handlers still assume valid barrier IDs.
    - **Target**: `handler.cc: rebuild_pointer_barriers`, `handle_xi2_event`.
    - **Change type**: Early exits or checks for nonzero barrier IDs before use.
@@ -103,4 +103,3 @@ This plan lists **itemized, priority-ordered improvements** that preserve curren
 
 - The items above intentionally avoid refactors or behavior changes. They focus on stability, clear invariants, and defensive guards.
 - Each item maps directly to risks in `docs/overview.md` and targets specific code regions to minimize regression risk.
-

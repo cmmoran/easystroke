@@ -469,11 +469,21 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
             if (grabber->hierarchy_changed(reinterpret_cast<XIHierarchyEvent *>(event))) {
                 win->prefs_tab->update_device_list();
             }
+            break;
         case XI_BarrierHit: {
                 const XIBarrierEvent *ev = reinterpret_cast<XIBarrierEvent *>(event);
                 if (ev->barrier)
                     XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
                 XFlush(dpy);
+                if (!top && !bottom && !left && !right) {
+                    if (verbosity >= 3) printf("Barrier hit ignored: no active barriers\n");
+                    break;
+                }
+                if (!((top && ev->barrier == top) || (bottom && ev->barrier == bottom) ||
+                      (left && ev->barrier == left) || (right && ev->barrier == right))) {
+                    if (verbosity >= 3) printf("Barrier hit ignored: unknown barrier %lu\n", static_cast<unsigned long>(ev->barrier));
+                    break;
+                }
                 if (ev->barrier == top) {
                     if (verbosity >= 3) printf("Top barrier hit %s (%0.2f, %0.2f)\n", controlled ? "controlled" : "uncontrolled", ev->root_x, ev->root_y);
                 } else if (ev->barrier == bottom) {
@@ -490,6 +500,15 @@ void XState::handle_xi2_event(XIDeviceEvent *event) {
             if (ev->barrier)
                 XIBarrierReleasePointer(dpy, ev->deviceid, ev->barrier, ev->eventid);
             XFlush(dpy);
+            if (!top && !bottom && !left && !right) {
+                if (verbosity >= 3) printf("Barrier leave ignored: no active barriers\n");
+                break;
+            }
+            if (!((top && ev->barrier == top) || (bottom && ev->barrier == bottom) ||
+                  (left && ev->barrier == left) || (right && ev->barrier == right))) {
+                if (verbosity >= 3) printf("Barrier leave ignored: unknown barrier %lu\n", static_cast<unsigned long>(ev->barrier));
+                break;
+            }
             if (ev->barrier == top) {
                 if (ev->root_y > screenTop) {
                     prevState = OUTSIDE;
@@ -1674,6 +1693,11 @@ bool XState::get_primary_monitor_center(int *center_x, int *center_y) {
     RROutput primary_output = XRRGetOutputPrimary(dpy, root);
     if (primary_output == None) {
         printf("No primary monitor set, using first available monitor\n");
+        if (screenRes->noutput < 1) {
+            printf("No monitors available\n");
+            XRRFreeScreenResources(screenRes);
+            return false;
+        }
         primary_output = screenRes->outputs[0]; // Fallback to the first output
     }
 
@@ -1705,4 +1729,3 @@ bool XState::get_primary_monitor_center(int *center_x, int *center_y) {
 
     return true; // Success
 }
-
