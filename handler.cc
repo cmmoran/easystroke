@@ -64,11 +64,47 @@ static inline typename std::enable_if<!has_data_len_member<T>::value, int>::type
 
 static XAtom EASYSTROKE_PING("EASYSTROKE_PING");
 
+namespace {
+struct PendingFakeMotion {
+    int x = 0;
+    int y = 0;
+    unsigned int count = 0;
+} pending_fake_motion;
+
+void record_fake_motion(const double x, const double y) {
+    pending_fake_motion.x = static_cast<int>(std::lround(x));
+    pending_fake_motion.y = static_cast<int>(std::lround(y));
+    pending_fake_motion.count++;
+}
+
+bool consume_fake_motion(const double x, const double y) {
+    if (!pending_fake_motion.count) {
+        return false;
+    }
+
+    if (pending_fake_motion.x != static_cast<int>(std::lround(x)) ||
+        pending_fake_motion.y != static_cast<int>(std::lround(y))) {
+        return false;
+    }
+
+    pending_fake_motion.count--;
+    return true;
+}
+
+void fake_pointer_motion(const double x, const double y, const Time when) {
+    record_fake_motion(x, y);
+    XTestFakeMotionEvent(dpy, DefaultScreen(dpy), static_cast<int>(std::lround(x)),
+                         static_cast<int>(std::lround(y)), when);
+}
+}
+
 bool XState::idle() {
     return !handler->child;
 }
 
 void XState::queue(sigc::slot<void> f) {
+    if (f.empty())
+        return;
     if (idle()) {
         f();
         XFlush(dpy);
@@ -529,6 +565,12 @@ void XState::handle_xi2_event(XGenericEventCookie *cookie) {
                 break;
             {
             XIDeviceEvent *event = static_cast<XIDeviceEvent *>(cookie->data);
+            if (consume_fake_motion(event->root_x, event->root_y)) {
+                if (verbosity >= 5) {
+                    printf("Ignoring synthetic XI2 motion at (%.3f, %.3f)\n", event->root_x, event->root_y);
+                }
+                break;
+            }
             {
                 MouseState currentState = get_mouse_state(event->root_x, event->root_y);
                 bool cycling_detected = is_cycling_detected(currentState);
@@ -776,14 +818,14 @@ public:
 
     virtual void press(guint b, RTriple e) {
         if (xstate->current_dev && xstate->current_dev->master) {
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            fake_pointer_motion(e->x, e->y, 0);
             XTestFakeButtonEvent(dpy, b, true, CurrentTime);
         }
     }
 
     virtual void motion(RTriple e) {
         if (xstate->current_dev && xstate->current_dev->master) {
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            fake_pointer_motion(e->x, e->y, 0);
         }
         if (proximity && !xstate->in_proximity)
             parent->replace_child(nullptr);
@@ -791,7 +833,7 @@ public:
 
     virtual void release(guint b, RTriple e) {
         if (xstate->current_dev && xstate->current_dev->master) {
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            fake_pointer_motion(e->x, e->y, 0);
             XTestFakeButtonEvent(dpy, b, false, CurrentTime);
         }
         if (proximity ? !xstate->in_proximity : xstate->xinput_pressed.empty())
@@ -820,14 +862,14 @@ public:
                 real_button = b;
             if (real_button == b)
                 b = button;
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            fake_pointer_motion(e->x, e->y, 0);
             XTestFakeButtonEvent(dpy, b, true, CurrentTime);
         }
     }
 
     virtual void motion(RTriple e) {
         if (xstate->current_dev && xstate->current_dev->master)
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            fake_pointer_motion(e->x, e->y, 0);
         if (proximity && !xstate->in_proximity)
             parent->replace_child(nullptr);
     }
@@ -836,7 +878,7 @@ public:
         if (xstate->current_dev && xstate->current_dev->master) {
             if (real_button == b)
                 b = button;
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            fake_pointer_motion(e->x, e->y, 0);
             XTestFakeButtonEvent(dpy, b, false, CurrentTime);
         }
         if (proximity ? !xstate->in_proximity : xstate->xinput_pressed.empty())
@@ -993,7 +1035,7 @@ protected:
     void move_back() {
         if (!prefs.move_back.get())
             return;
-        XTestFakeMotionEvent(dpy, DefaultScreen(dpy), orig_x, orig_y, 0);
+        fake_pointer_motion(orig_x, orig_y, 0);
     }
 
 public:
@@ -1230,7 +1272,7 @@ public:
             return;
         }
         if (xstate->current_dev && xstate->current_dev->master) {
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, 0);
+            fake_pointer_motion(e->x, e->y, 0);
         }
         click_time = 0;
         if (remap_to) {
@@ -1290,7 +1332,7 @@ public:
             replay_button = 0;
         }
         if (xstate->current_dev && xstate->current_dev->master) {
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, CurrentTime);
+            fake_pointer_motion(e->x, e->y, CurrentTime);
         }
     }
 
@@ -1301,7 +1343,7 @@ public:
             return parent->replace_child(nullptr);
         }
         if (xstate->current_dev && xstate->current_dev->master) {
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, CurrentTime);
+            fake_pointer_motion(e->x, e->y, CurrentTime);
         }
         if (remap_to) {
             xstate->fake_core_button(remap_to, false);
@@ -1501,12 +1543,15 @@ protected:
         }
 
         if (prefs.move_back.get())
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), orig->x, orig->y, CurrentTime);
+            fake_pointer_motion(orig->x, orig->y, CurrentTime);
         else
-            XTestFakeMotionEvent(dpy, DefaultScreen(dpy), e->x, e->y, CurrentTime);
+            fake_pointer_motion(e->x, e->y, CurrentTime);
 
         if (stroke_action) {
-            (*stroke_action)(s);
+            if (!stroke_action->empty())
+                (*stroke_action)(s);
+            else
+                stroke_action.reset();
             return parent->replace_child(nullptr);
         }
         RRanking ranking;
