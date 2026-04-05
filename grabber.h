@@ -18,6 +18,7 @@
 #include "prefdb.h"
 #include <string>
 #include <map>
+#include <sigc++/trackable.h>
 #include <X11/extensions/XInput2.h>
 #include <X11/Xatom.h>
 
@@ -46,7 +47,7 @@ public:
 class Grabber;
 extern Grabber *grabber;
 
-class Grabber {
+class Grabber : public sigc::trackable {
 	friend class Handler;
 	friend class StrokeHandler;
 	friend class Button;
@@ -78,13 +79,14 @@ private:
 	bool init_xi();
 
 	DeviceMap xi_devs;
-	State current, grabbed;
-	bool xi_grabbed;
-	GrabState xi_devs_grabbed;
-	int suspended;
-	bool active;
-	Cursor cursor_select;
-	ButtonInfo grabbed_button;
+	State current = BUTTON;
+	State grabbed = NONE;
+	bool xi_grabbed = false;
+	GrabState xi_devs_grabbed = GrabNo;
+	int suspended = 0;
+	bool active = true;
+	Cursor cursor_select = 0;
+	ButtonInfo grabbed_button{};
 	std::vector<ButtonInfo> buttons;
 
 	void set();

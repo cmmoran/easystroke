@@ -231,7 +231,11 @@ std::string get_wm_class(Window w) {
 
 class IdleNotifier : public Base {
     sigc::slot<void> f;
-    void run() { f(); }
+    void run() {
+        if (!f.empty()) {
+            f();
+        }
+    }
 
 public:
     IdleNotifier(sigc::slot<void> f_) : f(f_) {
@@ -251,15 +255,7 @@ void Grabber::unminimize() {
 const char *Grabber::state_name[4] = {"None", "Button", "Select", "Raw"};
 
 Grabber::Grabber() : children(ROOT) {
-    current = BUTTON;
-    suspended = 0;
     suspend();
-    active = true;
-    grabbed = NONE;
-    xi_grabbed = false;
-    xi_devs_grabbed = GrabNo;
-    grabbed_button.button = 0;
-    grabbed_button.state = 0;
     cursor_select = XCreateFontCursor(dpy, XC_crosshair);
     init_xi();
     prefs.excluded_devices.connect(new IdleNotifier(sigc::mem_fun(*this, &Grabber::update)));

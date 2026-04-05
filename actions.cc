@@ -777,12 +777,15 @@ void Actions::update_row(const Gtk::TreeRow &row) {
 extern boost::shared_ptr<sigc::slot<void, RStroke> > stroke_action;
 Source<bool> recording(false);
 
-class Actions::OnStroke {
+class Actions::OnStroke : public sigc::trackable {
+	sigc::connection idle_connection;
 	Actions *parent;
 	Gtk::Dialog *dialog;
 	Gtk::TreeRow &row;
 	RStroke stroke;
 	bool run() {
+		if (idle_connection.connected())
+			idle_connection.disconnect();
 		if (stroke->button == 0 && stroke->trivial()) {
 			grabber->queue_suspend();
 			Glib::ustring msg = Glib::ustring::compose(
@@ -807,13 +810,24 @@ class Actions::OnStroke {
 	}
 public:
 	OnStroke(Actions *parent_, Gtk::Dialog *dialog_, Gtk::TreeRow &row_) : parent(parent_), dialog(dialog_), row(row_) {}
+	~OnStroke() {
+		if (idle_connection.connected())
+			idle_connection.disconnect();
+	}
 	void delayed_run(RStroke stroke_) {
 		stroke = stroke_;
-		Glib::signal_idle().connect(sigc::mem_fun(*this, &OnStroke::run));
+		if (idle_connection.connected())
+			idle_connection.disconnect();
+		idle_connection = Glib::signal_idle().connect(sigc::mem_fun(*this, &OnStroke::run));
 		stroke_action.reset();
 		recording.set(false);
 	}
 };
+
+Actions::~Actions() {
+	if (focus_idle.connected())
+		focus_idle.disconnect();
+}
 
 void Actions::on_row_activated(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn* column) {
 	Gtk::TreeRow row(*tm->get_iter(path));
@@ -918,6 +932,8 @@ void Actions::on_button_new() {
 }
 
 bool Actions::do_focus(Unique *id, Gtk::TreeViewColumn *col, bool edit) {
+	if (focus_idle.connected())
+		focus_idle.disconnect();
 	if (!editing) {
 		Gtk::TreeModel::Children chs = tm->children();
 		for (const auto & ch : chs)
@@ -930,7 +946,9 @@ bool Actions::do_focus(Unique *id, Gtk::TreeViewColumn *col, bool edit) {
 
 void Actions::focus(Unique *id, int col, bool edit) {
 	editing = false;
-	Glib::signal_idle().connect(sigc::bind(sigc::mem_fun(*this, &Actions::do_focus), id, tv.get_column(col), edit));
+	if (focus_idle.connected())
+		focus_idle.disconnect();
+	focus_idle = Glib::signal_idle().connect(sigc::bind(sigc::mem_fun(*this, &Actions::do_focus), id, tv.get_column(col), edit));
 }
 
 void Actions::on_name_edited(const Glib::ustring& path, const Glib::ustring& new_text) {

@@ -19,7 +19,7 @@
 
 #include <gtkmm.h>
 
-class Prefs {
+class Prefs : public sigc::trackable {
 public:
 	Prefs();
 	virtual ~Prefs() {}

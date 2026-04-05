@@ -31,7 +31,10 @@ class Notifier : public Base {
 	sigc::slot<void> f;
 public:
 	Notifier(sigc::slot<void> f_) : f(f_) {}
-	virtual void notify() { f(); }
+	virtual void notify() {
+		if (!f.empty())
+			f();
+	}
 };
 
 class Atomic {

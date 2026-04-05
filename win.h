@@ -30,7 +30,7 @@ class Ranking;
 
 extern Glib::RefPtr<Gtk::Builder> widgets;
 
-class Win : Timeout {
+class Win : private Timeout, public sigc::trackable {
 public:
 	Win();
 
@@ -61,7 +61,7 @@ private:
 
 extern Win *win;
 
-class Stats {
+class Stats : public sigc::trackable {
 public:
 	Stats();
 	bool on_stroke(boost::shared_ptr<Ranking>);

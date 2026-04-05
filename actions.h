@@ -32,9 +32,10 @@ public:
 	TreeViewMulti();
 };
 
-class Actions {
+class Actions : public sigc::trackable {
 public:
 	Actions();
+	~Actions();
 private:
 	void on_button_dup();
 	void on_button_delete();
@@ -147,6 +148,7 @@ private:
 	int vpaned_position;
 	bool editing_new;
 	bool editing;
+	sigc::connection focus_idle;
 
 	ActionListDiff *action_list;
 };
