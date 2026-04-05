@@ -26,6 +26,8 @@ Popup::Popup(int x1, int y1, int x2, int y2) : Gtk::Window(Gtk::WINDOW_POPUP), r
 		throw std::runtime_error(_("'composite' not available"));
 
 	Glib::RefPtr<Gdk::Visual> visual = get_screen()->get_rgba_visual();
+	if (!visual)
+		throw std::runtime_error(_("RGBA visual not available"));
 	gtk_widget_set_visual(Widget::gobj(), visual->gobj());
 	gtk_widget_set_app_paintable (Widget::gobj(), TRUE);
 	signal_draw().connect(sigc::mem_fun(*this, &Popup::on_draw));

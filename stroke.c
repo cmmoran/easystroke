@@ -75,6 +75,19 @@ void stroke_finish(stroke_t *s) {
 		total += hypot(s->p[i+1].x - s->p[i].x, s->p[i+1].y - s->p[i].y);
 		s->p[i+1].t = total;
 	}
+	if (total <= EPS) {
+		for (int i = 0; i <= n; i++)
+			s->p[i].t = 0.0;
+		for (int i = 0; i <= n; i++) {
+			s->p[i].x = 0.5;
+			s->p[i].y = 0.5;
+		}
+		for (int i = 0; i < n; i++) {
+			s->p[i].dt = 0.0;
+			s->p[i].alpha = 0.0;
+		}
+		return;
+	}
 	for (int i = 0; i <= n; i++)
 		s->p[i].t /= total;
 	double minX = s->p[0].x, minY = s->p[0].y, maxX = minX, maxY = minY;

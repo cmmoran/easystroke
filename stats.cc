@@ -131,6 +131,8 @@ bool delete_me(boost::shared_ptr<Feedback>) {
 }
 
 bool Ranking::show(RRanking r) {
+	if (!win || !win->stats)
+		return false;
 	if (prefs.tray_feedback.get())
 		win->set_icon(r->stroke, !r->best_stroke);
 	if (prefs.feedback.get() && r->best_stroke) {
@@ -279,9 +281,10 @@ void Stats::on_pdf() {
 		gettimeofday(&tv2, 0);
 		printf("creating table took %ld us\n", (tv2.tv_sec - tv1.tv_sec)*1000000 + tv2.tv_usec - tv1.tv_usec);
 	}
-	if (!fork()) {
-		execlp("xdg-open", "xdg-open", "/tmp/strokes.pdf", nullptr);
-		exit(EXIT_FAILURE);
+	gchar *argv[] = {(gchar *)"xdg-open", (gchar *)"/tmp/strokes.pdf", nullptr};
+	GError *error = nullptr;
+	if (!g_spawn_async(nullptr, argv, nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr, &error) && error) {
+		printf("Failed to open PDF viewer: %s\n", error->message);
+		g_error_free(error);
 	}
 }
-

@@ -304,7 +304,8 @@ void Win::set_icon(RStroke stroke, bool invert) {
 }
 
 void error_dialog(const Glib::ustring &text) {
-	Gtk::MessageDialog dialog(win->get_window(), text, false, Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+	Gtk::MessageDialog dialog(win ? Gtk::MessageDialog(win->get_window(), text, false, Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true)
+	                              : Gtk::MessageDialog(text, false, Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true));
 	dialog.show();
 	dialog.run();
 }

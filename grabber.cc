@@ -431,8 +431,12 @@ void Grabber::XiDevice::grab_button(ButtonInfo &bi, bool grab) {
         }
     }
     if (grab) {
-        XIGrabButton(dpy, dev, 1, ROOT, None, GrabModeAsync, GrabModeAsync, False, &device_mask, nmods, modifiers);
-        XIGrabButton(dpy, dev, bi.button, ROOT, None, GrabModeAsync, GrabModeAsync, False, &device_mask, nmods, modifiers);
+        const int status_base = XIGrabButton(dpy, dev, 1, ROOT, None, GrabModeAsync, GrabModeAsync, False, &device_mask, nmods, modifiers);
+        if (status_base != Success && verbosity >= 1)
+            printf("Warning: XIGrabButton failed for device %d button 1: %d\n", dev, status_base);
+        const int status_button = XIGrabButton(dpy, dev, bi.button, ROOT, None, GrabModeAsync, GrabModeAsync, False, &device_mask, nmods, modifiers);
+        if (status_button != Success && verbosity >= 1)
+            printf("Warning: XIGrabButton failed for device %d button %u: %d\n", dev, bi.button, status_button);
     } else {
         XIUngrabButton(dpy, dev, 1, ROOT, nmods, modifiers);
         XIUngrabButton(dpy, dev, bi.button, ROOT, nmods, modifiers);
@@ -471,7 +475,10 @@ void Grabber::XiDevice::grab_device(GrabState grab) {
         xstate->ungrab(dev);
         return;
     }
-    XIGrabDevice(dpy, dev, ROOT, CurrentTime, None, GrabModeAsync, GrabModeAsync, False, grab == GrabYes ? &device_mask : &raw_mask);
+    const int status = XIGrabDevice(dpy, dev, ROOT, CurrentTime, None, GrabModeAsync, GrabModeAsync, False,
+                                    grab == GrabYes ? &device_mask : &raw_mask);
+    if (status != Success && verbosity >= 1)
+        printf("Warning: XIGrabDevice failed for device %d mode %d: %d\n", dev, grab, status);
 }
 
 void Grabber::grab_xi_devs(GrabState grab) {

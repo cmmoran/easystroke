@@ -45,6 +45,8 @@ void Fire::add_point(float x, float y) const {
 
 void Fire::draw(Point p, Point q) {
 	const float dist = std::hypot(p.x-q.x, p.y-q.y);
+	if (dist <= 0.0f)
+		return;
 	leftover -= dist;
 	while (leftover < 0.01) {
 		add_point(q.x + (q.x-p.x)*leftover/dist, q.y + (q.y-p.y)*leftover/dist);

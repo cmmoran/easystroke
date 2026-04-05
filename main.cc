@@ -482,11 +482,10 @@ void App::create_config_dir() {
         config_dir = getenv("HOME");
         config_dir += "/.easystroke";
     }
-    struct stat st;
-    char *name = realpath(config_dir.c_str(), nullptr);
+    struct stat st{};
 
     // check if the directory does not exist
-    if (lstat(name, &st) == -1) {
+    if (lstat(config_dir.c_str(), &st) == -1) {
         if (mkdir(config_dir.c_str(), 0777) == -1) {
             printf(_("Error: Couldn't create configuration directory \"%s\"\n"), config_dir.c_str());
             exit(EXIT_FAILURE);
@@ -497,19 +496,20 @@ void App::create_config_dir() {
             exit(EXIT_FAILURE);
         }
     }
-    free(name);
     config_dir += "/";
 }
 
 App::~App() {
     if (win) {
-        delete win;
+        prefs.execute_now();
+        action_watcher->execute_now();
+        Win *owned_win = win;
+        win = nullptr;
+        delete owned_win;
         trace->end();
         trace.reset();
         delete grabber;
         XCloseDisplay(dpy);
-        prefs.execute_now();
-        action_watcher->execute_now();
     }
 }
 
