@@ -184,48 +184,72 @@ void XState::activate_window(Window w, Time t) {
 }
 
 Window XState::get_window(Window w, Atom prop) {
+    if (!w || !prop) {
+        return None;
+    }
+
     Atom actual_type;
     int actual_format;
     unsigned long nitems, bytes_after;
     unsigned char *prop_return = nullptr;
 
-    if (XGetWindowProperty(dpy, w, prop, 0, sizeof(Atom), False, XA_WINDOW, &actual_type, &actual_format,
+    if (XGetWindowProperty(dpy, w, prop, 0, 1, False, XA_WINDOW, &actual_type, &actual_format,
                            &nitems, &bytes_after, &prop_return) != Success)
         return None;
     if (!prop_return)
         return None;
+    if (actual_type != XA_WINDOW || actual_format != 32 || nitems < 1) {
+        XFree(prop_return);
+        return None;
+    }
     const Window ret = *reinterpret_cast<Window *>(prop_return);
     XFree(prop_return);
     return ret;
 }
 
 Atom XState::get_atom(Window w, Atom prop) {
+    if (!w || !prop) {
+        return None;
+    }
+
     Atom actual_type;
     int actual_format;
     unsigned long nitems, bytes_after;
     unsigned char *prop_return = nullptr;
 
-    if (XGetWindowProperty(dpy, w, prop, 0, sizeof(Atom), False, XA_ATOM, &actual_type, &actual_format,
+    if (XGetWindowProperty(dpy, w, prop, 0, 1, False, XA_ATOM, &actual_type, &actual_format,
                            &nitems, &bytes_after, &prop_return) != Success)
         return None;
     if (!prop_return)
         return None;
+    if (actual_type != XA_ATOM || actual_format != 32 || nitems < 1) {
+        XFree(prop_return);
+        return None;
+    }
     const Atom atom = *reinterpret_cast<Atom *>(prop_return);
     XFree(prop_return);
     return atom;
 }
 
 bool XState::has_atom(Window w, Atom prop, Atom value) {
+    if (!w || !prop || !value) {
+        return false;
+    }
+
     Atom actual_type;
     int actual_format;
     unsigned long nitems, bytes_after;
     unsigned char *prop_return = nullptr;
 
-    if (XGetWindowProperty(dpy, w, prop, 0, sizeof(Atom), False, XA_ATOM, &actual_type, &actual_format,
+    if (XGetWindowProperty(dpy, w, prop, 0, 1024, False, XA_ATOM, &actual_type, &actual_format,
                            &nitems, &bytes_after, &prop_return) != Success)
-        return None;
+        return false;
     if (!prop_return)
-        return None;
+        return false;
+    if (actual_type != XA_ATOM || actual_format != 32 || nitems < 1) {
+        XFree(prop_return);
+        return false;
+    }
     const auto atoms = reinterpret_cast<Atom *>(prop_return);
     bool ans = false;
     for (unsigned long i = 0; i < nitems; i++)

@@ -223,9 +223,15 @@ std::string get_wm_class(Window w) {
     if (!XGetClassHint(dpy, w, &ch)) {
         return "";
     }
-    std::string ans = ch.res_name;
-    XFree(ch.res_name);
-    XFree(ch.res_class);
+    const char *res_name = ch.res_name;
+    const char *res_class = ch.res_class;
+    std::string ans = res_name ? res_name : "";
+    if (res_name) {
+        XFree(ch.res_name);
+    }
+    if (res_class) {
+        XFree(ch.res_class);
+    }
     return ans;
 }
 
@@ -588,17 +594,39 @@ void Grabber::update() {
 
 // Fuck Xlib
 static bool has_wm_state(Window w) {
+    if (!w) {
+        return false;
+    }
     static XAtom WM_STATE("WM_STATE");
     Atom actual_type_return;
     int actual_format_return;
     unsigned long nitems_return;
     unsigned long bytes_after_return;
-    unsigned char *prop_return;
+    unsigned char *prop_return = nullptr;
     if (Success != XGetWindowProperty(dpy, w, *WM_STATE, 0, 2, False, AnyPropertyType, &actual_type_return,
                                       &actual_format_return, &nitems_return, &bytes_after_return, &prop_return))
         return false;
-    XFree(prop_return);
-    return nitems_return;
+    if (prop_return) {
+        XFree(prop_return);
+    }
+    return actual_format_return == 32 && nitems_return > 0;
+}
+
+static bool is_stable_app_window(const Window w) {
+    if (!w || w == ROOT) {
+        return false;
+    }
+
+    XWindowAttributes attr;
+    if (!XGetWindowAttributes(dpy, w, &attr)) {
+        return false;
+    }
+
+    if (attr.c_class == InputOnly || attr.override_redirect) {
+        return false;
+    }
+
+    return true;
 }
 
 auto find_wm_state(const Window w) -> Window {
@@ -626,28 +654,35 @@ auto find_wm_state(const Window w) -> Window {
 
 Window get_app_window(Window w) {
     if (!w) {
-        return w;
+        return None;
     }
 
     if (frame_win.contains1(w)) {
-        return frame_win.find1(w);
+        const Window app = frame_win.find1(w);
+        if (is_stable_app_window(app) && has_wm_state(app)) {
+            return app;
+        }
+        frame_win.erase1(w);
     }
 
     if (frame_child.contains1(w)) {
-        return frame_child.find1(w);
+        const Window app = frame_child.find1(w);
+        if (is_stable_app_window(app) && has_wm_state(app)) {
+            return app;
+        }
+        frame_child.erase1(w);
     }
 
     Window w2 = find_wm_state(w);
-	if (w2) {
-		frame_child.add(w, w2);
-		if (w2 != w) {
-			w = w2;
-			XSelectInput(dpy, w2, StructureNotifyMask | PropertyChangeMask);
-		}
-		return w2;
-	}
-	if (verbosity >= 1) {
-        printf("Window 0x%lx does not have an associated top-level window\n", w);
+    if (w2 && is_stable_app_window(w2)) {
+        frame_child.add(w, w2);
+        if (w2 != w) {
+            XSelectInput(dpy, w2, StructureNotifyMask | PropertyChangeMask);
+        }
+        return w2;
     }
-    return w;
+    if (verbosity >= 1) {
+        printf("Window 0x%lx does not have a stable associated top-level window\n", w);
+    }
+    return None;
 }
