@@ -625,29 +625,29 @@ void XState::handle_xi2_event(XGenericEventCookie *cookie) {
             }
             if (ev->barrier == top) {
                 if (ev->root_y > screenTop) {
-                    prevState = OUTSIDE;
+                    reset_control_tracking(OUTSIDE);
                     request_control_state(false, "top leave below barrier");
                     if (verbosity >= 3) printf("Top barrier leave (resumed) uncontrolled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 } else if (ev->root_y <= screenTop) {
-                    prevState = OUTSIDE;
+                    reset_control_tracking(OUTSIDE);
                     request_control_state(true, "top leave above barrier");
                     if (verbosity >= 3) printf("Top barrier leave (suspended) controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 }
             } else if (ev->barrier == bottom) {
                 if (ev->root_y >= screenBot) {
-                    prevState = OUTSIDE;
+                    reset_control_tracking(OUTSIDE);
                     request_control_state(true, "bottom leave below screen");
                     if (verbosity >= 3) printf("Bottom barrier leave DOWN controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 }
             } else if (ev->barrier == left) {
                 if (ev->root_x <= screenLeft) {
-                    prevState = OUTSIDE;
+                    reset_control_tracking(OUTSIDE);
                     request_control_state(true, "left barrier leave");
                     if (verbosity >= 3) printf("Left barrier leave LEFT controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 }
             } else if (ev->barrier == right) {
                 if (ev->root_x >= screenRight) {
-                    prevState = OUTSIDE;
+                    reset_control_tracking(OUTSIDE);
                     request_control_state(true, "right barrier leave");
                     if (verbosity >= 3) printf("Right barrier leave RIGHT controlled (%0.2f, %0.2f)\n", ev->root_x, ev->root_y);
                 }
@@ -759,8 +759,10 @@ void Handler::replace_child(Handler *c) {
         child->init();
     }
     while (!xstate->queued.empty() && xstate->idle()) {
-        (*xstate->queued.begin())();
+        sigc::slot<void> callback = *xstate->queued.begin();
         xstate->queued.pop_front();
+        if (!callback.empty())
+            callback();
     }
 }
 
@@ -905,6 +907,42 @@ void XState::remove_device(int deviceid) {
 void XState::ungrab(int deviceid) {
     if (current_dev && current_dev->dev == deviceid)
         xinput_pressed.clear();
+}
+
+void XState::reset_local_input_state() {
+    xinput_pressed.clear();
+    current_dev = nullptr;
+    in_proximity = false;
+    modifiers = 0;
+}
+
+void XState::reset_control_tracking(MouseState state) {
+    prevState = state;
+    transitionCount = 0;
+    transitionOutCount = 0;
+}
+
+void XState::cancel_pending_control_state() {
+    if (control_timeout.connected())
+        control_timeout.disconnect();
+    if (!controlled)
+        set_pending_control_suspend(false);
+    target_controlled = controlled;
+    pending_control_reason.clear();
+}
+
+void XState::set_pending_control_suspend(bool suspend) {
+    if (suspend) {
+        if (pending_control_suspend)
+            return;
+        pending_control_suspend = true;
+        grabber->suspend();
+        return;
+    }
+    if (!pending_control_suspend)
+        return;
+    pending_control_suspend = false;
+    grabber->resume();
 }
 
 class WaitForPongHandler : public Handler, protected Timeout {
@@ -1637,6 +1675,8 @@ void XState::update_screen_metrics() {
     screenWidth = DisplayWidth(dpy, 0);
     screenHeight = DisplayHeight(dpy, 0);
 
+    cancel_pending_control_state();
+
     int center_x = 0, center_y = 0;
     if (!get_primary_monitor_center(&center_x, &center_y)) {
         if (verbosity >= 2)
@@ -1660,9 +1700,7 @@ void XState::update_screen_metrics() {
     screenRight = screenWidth - offset;
 
     // Reset state tracking so new geometry doesn't keep stale assumptions.
-    prevState = NONE;
-    transitionCount = 0;
-    transitionOutCount = 0;
+    reset_control_tracking(NONE);
 }
 
 void XState::destroy_pointer_barriers() {
@@ -1744,6 +1782,20 @@ XState::XState() : current_dev(nullptr),
 }
 
 void XState::request_control_state(bool wants_controlled, const char *reason) {
+    const bool gesture_active = !idle() || !xinput_pressed.empty();
+
+    if (wants_controlled) {
+        if (!controlled && !gesture_active)
+            set_pending_control_suspend(true);
+    } else if (!controlled) {
+        set_pending_control_suspend(false);
+    }
+
+    if (!wants_controlled && control_timeout.connected() && target_controlled && !controlled) {
+        if (!gesture_active)
+            reset_local_input_state();
+    }
+
     target_controlled = wants_controlled;
     if (reason)
         pending_control_reason = reason;
@@ -1756,22 +1808,45 @@ void XState::request_control_state(bool wants_controlled, const char *reason) {
 }
 
 bool XState::apply_control_state() {
+    if (controlled == target_controlled)
+    {
+        if (control_timeout.connected())
+            control_timeout.disconnect();
+        return false;
+    }
+
+    if (target_controlled) {
+        if (!idle() || !xinput_pressed.empty()) {
+            if (verbosity >= 2)
+                printf("Deferring Synergy handoff until the active local gesture finishes\n");
+            return true;
+        }
+        if (!pending_control_suspend)
+            set_pending_control_suspend(true);
+        reset_local_input_state();
+    }
+
     if (control_timeout.connected())
         control_timeout.disconnect();
 
-    if (controlled == target_controlled)
-        return false;
-
     controlled = target_controlled;
+    if (!controlled)
+        reset_local_input_state();
+    reset_control_tracking(controlled ? OUTSIDE : NONE);
     if (verbosity >= 3) {
         printf("Applying %s control (%s)\n", controlled ? "Synergy" : "local",
                pending_control_reason.empty() ? "no reason provided" : pending_control_reason.c_str());
     }
 
-    if (controlled)
-        grabber->suspend();
-    else
+    if (controlled) {
+        pending_control_suspend = false;
+    } else {
+        if (pending_control_suspend)
+            set_pending_control_suspend(false);
+        else
         grabber->resume();
+    }
+    pending_control_reason.clear();
     return false;
 }
 

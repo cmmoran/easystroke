@@ -86,6 +86,7 @@ public:
         MouseState prevState = NONE; // Initial state is outside the controlled area
         PointerBarrier top, left, bottom, right;
         bool target_controlled = false;
+        bool pending_control_suspend = false;
         sigc::connection control_timeout;
         sigc::connection drain_idle;
         std::string pending_control_reason;
@@ -98,6 +99,10 @@ private:
         void init_randr_tracking();
         void handle_randr_event(XEvent &ev);
         void update_screen_metrics();
+        void reset_local_input_state();
+        void reset_control_tracking(MouseState state);
+        void cancel_pending_control_state();
+        void set_pending_control_suspend(bool suspend);
         void destroy_pointer_barriers();
         void rebuild_pointer_barriers();
 
