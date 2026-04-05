@@ -52,7 +52,10 @@ DIST     = easystroke-$(VERSION)
 
 all: $(BINARY) $(MOFILES)
 
-.PHONY: all clean translate update-translations compile-translations complete
+.PHONY: all clean translate update-translations compile-translations complete asan
+
+asan:
+	$(MAKE) clean all DFLAGS="-ggdb -fsanitize=address,undefined -fno-omit-frame-pointer" OFLAGS="-O1" AOFLAGS="-O1"
 
 clean:
 	$(RM) $(OFILES) $(BINARY) $(GENFILES) $(DEPFILES) $(MANPAGE) $(GZFILES) po/*.pot
